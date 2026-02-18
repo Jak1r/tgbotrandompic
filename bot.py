@@ -12,24 +12,43 @@ load_dotenv()
 
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 UNSPLASH_ACCESS_KEY = os.environ.get('UNSPLASH_ACCESS_KEY')
+PEXELS_API_KEY = os.environ.get('PEXELS_API_KEY')
+PIXABAY_API_KEY = os.environ.get('PIXABAY_API_KEY')
 PORT = int(os.environ.get('PORT', 10000))
 
-if not TELEGRAM_TOKEN or not UNSPLASH_ACCESS_KEY:
-    raise ValueError("TELEGRAM_TOKEN или UNSPLASH_ACCESS_KEY не заданы в переменных окружения")
+if not TELEGRAM_TOKEN:
+    raise ValueError("TELEGRAM_TOKEN не задан в переменных окружения")
+
+# Проверяем какие API ключи доступны
+available_apis = []
+if UNSPLASH_ACCESS_KEY:
+    available_apis.append('unsplash')
+    print("✅ Unsplash API доступен")
+if PEXELS_API_KEY:
+    available_apis.append('pexels')
+    print("✅ Pexels API доступен")
+if PIXABAY_API_KEY:
+    available_apis.append('pixabay')
+    print("✅ Pixabay API доступен")
+
+if not available_apis:
+    raise ValueError("Нет доступных API ключей!")
+
+print(f"🔑 Доступно API: {', '.join(available_apis)}")
 
 # Список тем для случайного выбора
 RANDOM_QUERIES = [
     'nature', 'city', 'abstract', 'people', 'animals', 'food',
     'travel', 'space', 'art', 'technology', 'mountain', 'ocean',
-    'forest', 'sunset', 'flowers'
+    'forest', 'sunset', 'flowers', 'architecture', 'beach', 'winter'
 ]
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
-
-# Flask-приложение для webhook
 app = Flask(__name__)
 
-# Авто-установка webhook при запуске
+# Счетчик для ротации API
+current_api_index = 0
+
 def setup_webhook():
     webhook_path = f'/{TELEGRAM_TOKEN}'
     hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "tgbotrandompic.onrender.com")
@@ -50,43 +69,142 @@ def setup_webhook():
     except Exception as e:
         print(f"❌ Ошибка при установке webhook: {e}")
 
-# Функция получения случайной картинки с Unsplash
-def get_random_unsplash_image(custom_query=None):
-    query = custom_query or random.choice(RANDOM_QUERIES)
+# Функция получения картинки с Unsplash
+def get_unsplash_image(query):
     url = f'https://api.unsplash.com/photos/random?query={query}&client_id={UNSPLASH_ACCESS_KEY}'
     
     try:
         response = requests.get(url, timeout=10)
+        
+        if response.status_code == 429:
+            print(f"⚠️ Unsplash rate limit достигнут")
+            return None, None, True  # True = rate limit
+        
         response.raise_for_status()
         data = response.json()
         
-        # Получаем URL разных размеров
         urls = data.get('urls', {})
+        image_url = urls.get('regular')
+        thumb_url = urls.get('thumb')
         
-        # Для inline результатов используем средний размер как основное фото
-        image_url = urls.get('regular')  # ~1080px по ширине
-        # Для превью - самый маленький размер
-        thumb_url = urls.get('thumb')    # 200x200px - это важно!
+        print(f"✅ Unsplash: получена картинка")
+        return image_url, thumb_url, False
         
-        print(f"✅ Image URL: {image_url}")
-        print(f"✅ Thumb URL: {thumb_url}")
-        
-        return image_url, thumb_url
     except Exception as e:
-        print(f"❌ Ошибка при запросе к Unsplash: {e}")
-        return None, None
+        print(f"❌ Ошибка Unsplash: {e}")
+        return None, None, False
 
-# Команда /start
+# Функция получения картинки с Pexels
+def get_pexels_image(query):
+    url = f'https://api.pexels.com/v1/search?query={query}&per_page=1&page={random.randint(1, 100)}'
+    
+    headers = {
+        'Authorization': PEXELS_API_KEY
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        
+        if response.status_code == 429:
+            print(f"⚠️ Pexels rate limit достигнут")
+            return None, None, True
+        
+        response.raise_for_status()
+        data = response.json()
+        
+        if data.get('photos') and len(data['photos']) > 0:
+            photo = data['photos'][0]
+            image_url = photo['src']['large']  # или 'large2x' для большего размера
+            thumb_url = photo['src']['small']
+            
+            print(f"✅ Pexels: получена картинка")
+            return image_url, thumb_url, False
+        else:
+            print(f"⚠️ Pexels: нет результатов для '{query}'")
+            return None, None, False
+            
+    except Exception as e:
+        print(f"❌ Ошибка Pexels: {e}")
+        return None, None, False
+
+# Функция получения картинки с Pixabay
+def get_pixabay_image(query):
+    url = f'https://pixabay.com/api/?key={PIXABAY_API_KEY}&q={query}&image_type=photo&per_page=3&page={random.randint(1, 50)}'
+    
+    try:
+        response = requests.get(url, timeout=10)
+        
+        if response.status_code == 429:
+            print(f"⚠️ Pixabay rate limit достигнут")
+            return None, None, True
+        
+        response.raise_for_status()
+        data = response.json()
+        
+        if data.get('hits') and len(data['hits']) > 0:
+            photo = random.choice(data['hits'])
+            image_url = photo['largeImageURL']
+            thumb_url = photo['previewURL']
+            
+            print(f"✅ Pixabay: получена картинка")
+            return image_url, thumb_url, False
+        else:
+            print(f"⚠️ Pixabay: нет результатов для '{query}'")
+            return None, None, False
+            
+    except Exception as e:
+        print(f"❌ Ошибка Pixabay: {e}")
+        return None, None, False
+
+# Главная функция с ротацией API
+def get_random_image(custom_query=None):
+    global current_api_index
+    
+    query = custom_query or random.choice(RANDOM_QUERIES)
+    
+    # Пробуем все доступные API по очереди
+    for attempt in range(len(available_apis)):
+        api_name = available_apis[current_api_index]
+        
+        print(f"🔄 Попытка #{attempt + 1}: используем {api_name.upper()}")
+        
+        image_url, thumb_url, rate_limited = None, None, False
+        
+        # Вызываем соответствующий API
+        if api_name == 'unsplash':
+            image_url, thumb_url, rate_limited = get_unsplash_image(query)
+        elif api_name == 'pexels':
+            image_url, thumb_url, rate_limited = get_pexels_image(query)
+        elif api_name == 'pixabay':
+            image_url, thumb_url, rate_limited = get_pixabay_image(query)
+        
+        # Если получили картинку - возвращаем
+        if image_url and thumb_url:
+            # Переключаемся на следующий API для равномерной нагрузки
+            current_api_index = (current_api_index + 1) % len(available_apis)
+            return image_url, thumb_url
+        
+        # Если rate limit - переключаемся на следующий API
+        if rate_limited:
+            print(f"⚠️ {api_name.upper()} rate limit, переключаемся на следующий API")
+            current_api_index = (current_api_index + 1) % len(available_apis)
+            continue
+        
+        # Если просто не нашли картинку - пробуем следующий API
+        current_api_index = (current_api_index + 1) % len(available_apis)
+    
+    print(f"❌ Все API не вернули результат для '{query}'")
+    return None, None
+
 @bot.message_handler(commands=['start'])
 def start_command(message):
     bot.reply_to(message, 
-        'Привет! Я бот для отправки случайных картинок из Unsplash.\n\n'
-        '🔹 Упомяни меня в чате для кнопки с картинкой\n'
-        '🔹 Используй меня в inline-режиме: напиши мой юзернейм в любом чате\n'
-        '🔹 Можешь добавить запрос после имени (например: @bot cats)'
+        '🎨 Привет! Я бот для отправки случайных картинок.\n\n'
+        '📸 Используй меня в inline-режиме:\n'
+        'Напиши мое имя в любом чате и добавь запрос (например: cats, nature)\n\n'
+        f'🔑 Подключено API: {", ".join(available_apis)}'
     )
 
-# Обычный режим — упоминание бота
 @bot.message_handler(func=lambda message: True)
 def handle_mention(message):
     bot_username = bot.get_me().username
@@ -96,22 +214,20 @@ def handle_mention(message):
         markup.add(button)
         bot.reply_to(message, 'Что хочешь сделать?', reply_markup=markup)
 
-# Обработка нажатия кнопки в обычном режиме
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
     if call.data == 'send_random_img':
         bot.answer_callback_query(call.id, "Загружаю картинку...")
-        image_url, _ = get_random_unsplash_image()
+        image_url, _ = get_random_image()
         if image_url:
             try:
                 bot.send_photo(call.message.chat.id, image_url)
             except Exception as e:
-                bot.send_message(call.message.chat.id, '❌ Не удалось скачать изображение')
+                bot.send_message(call.message.chat.id, '❌ Не удалось отправить изображение')
                 print(f"❌ Ошибка отправки фото: {e}")
         else:
             bot.send_message(call.message.chat.id, '❌ Не удалось найти картинку. Попробуй позже!')
 
-# Inline-режим — когда набирают @bot в любом чате
 @bot.inline_handler(lambda query: True)
 def inline_handler(inline_query):
     print(f"📥 Получен inline-запрос: '{inline_query.query}' от пользователя {inline_query.from_user.id}")
@@ -119,59 +235,45 @@ def inline_handler(inline_query):
     query_text = inline_query.query.strip()
     results = []
 
-    # Генерируем ОДНУ картинку
     try:
         custom_query = query_text if query_text else None
-        image_url, thumb_url = get_random_unsplash_image(custom_query)
+        image_url, thumb_url = get_random_image(custom_query)
         
         if image_url and thumb_url:
-            result_id = str(int(time.time() * 1000))  # Используем миллисекунды для уникальности
+            result_id = str(int(time.time() * 1000))
             title = "📸 Случайная картинка" if not query_text else f"📸 {query_text}"
             
-            # ВАЖНО: используем photo_width и photo_height для лучшей совместимости
             result = telebot.types.InlineQueryResultPhoto(
                 id=result_id,
                 photo_url=image_url,
                 thumbnail_url=thumb_url,
-                photo_width=1080,  # Указываем размеры
+                photo_width=1080,
                 photo_height=720,
                 title=title,
                 description="Нажми, чтобы отправить"
             )
             
             results.append(result)
-            print(f"✅ Создан inline результат ID: {result_id}")
+            print(f"✅ Создан inline результат")
         else:
-            print(f"⚠️ Не удалось получить URL картинок")
+            print(f"⚠️ Не удалось получить картинку")
     except Exception as e:
         print(f"❌ Ошибка при создании результата: {e}")
         import traceback
         print(traceback.format_exc())
 
-    # Отвечаем Telegram
     try:
         if results:
-            bot.answer_inline_query(
-                inline_query.id, 
-                results,
-                cache_time=0,
-                is_personal=True
-            )
-            print(f"✅ Отправлено {len(results)} результатов Telegram")
+            bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
+            print(f"✅ Отправлен результат в Telegram")
         else:
-            # Если нет результатов, все равно отвечаем
             bot.answer_inline_query(inline_query.id, [], cache_time=0)
-            print(f"⚠️ Отправлен пустой ответ Telegram")
+            print(f"⚠️ Отправлен пустой ответ в Telegram")
     except Exception as e:
-        print(f"❌ ОШИБКА при ответе Telegram API: {e}")
-        import traceback
-        print(traceback.format_exc())
+        print(f"❌ Ошибка при ответе Telegram: {e}")
 
-# Роуты Flask
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
 def webhook():
-    print("📨 Получен POST-запрос от Telegram!")
-    
     if request.headers.get('content-type') == 'application/json':
         json_string = request.get_data().decode('utf-8')
         try:
@@ -179,19 +281,18 @@ def webhook():
             bot.process_new_updates([update])
             return 'OK', 200
         except Exception as e:
-            print(f"❌ Ошибка обработки update: {e}")
+            print(f"❌ Ошибка обработки: {e}")
             return 'Error', 500
     else:
         abort(403)
 
 @app.route('/')
 def index():
-    return '🤖 Bot is running!', 200
+    return f'🤖 Bot is running! APIs: {", ".join(available_apis)}', 200
 
 @app.route('/health')
 def health():
     return 'OK', 200
 
-# Инициализация при запуске
 if __name__ != '__main__':
     setup_webhook()
