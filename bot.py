@@ -237,7 +237,7 @@ def create_collage(image_urls, count):
                 continue
         
         if not images:
-            return None
+            return None, None
         
         # Определяем размеры коллажа
         if count <= 4:
@@ -274,19 +274,28 @@ def create_collage(image_urls, count):
             
             collage.paste(img, (x, y))
         
-        # Сохраняем в BytesIO
-        output = BytesIO()
-        collage.save(output, format='JPEG', quality=85)
-        output.seek(0)
+        # Создаем превью ДО сохранения в JPEG
+        thumb = collage.copy()
+        thumb.thumbnail((200, 200), Image.Resampling.LANCZOS)
+        
+        # Сохраняем полное изображение
+        full_output = BytesIO()
+        collage.save(full_output, format='JPEG', quality=85)
+        full_output.seek(0)
+        
+        # Сохраняем превью
+        thumb_output = BytesIO()
+        thumb.save(thumb_output, format='JPEG', quality=70)
+        thumb_output.seek(0)
         
         print(f"✅ Коллаж создан успешно ({collage_width}x{collage_height})")
-        return output
+        return full_output, thumb_output
         
     except Exception as e:
         print(f"❌ Ошибка создания коллажа: {e}")
         import traceback
         print(traceback.format_exc())
-        return None
+        return None, None
 
 # ФУНКЦИЯ: Добавление текста на картинку
 def add_text_to_image(image_url, text):
@@ -377,19 +386,28 @@ def add_text_to_image(image_url, text):
             
             y_offset = y - 10  # Отступ между строками
         
-        # Сохраняем в BytesIO
-        output = BytesIO()
-        img.save(output, format='JPEG', quality=90)
-        output.seek(0)
+        # Создаем превью ДО сохранения в JPEG
+        thumb = img.copy()
+        thumb.thumbnail((200, 200), Image.Resampling.LANCZOS)
+        
+        # Сохраняем полное изображение
+        full_output = BytesIO()
+        img.save(full_output, format='JPEG', quality=90)
+        full_output.seek(0)
+        
+        # Сохраняем превью
+        thumb_output = BytesIO()
+        thumb.save(thumb_output, format='JPEG', quality=70)
+        thumb_output.seek(0)
         
         print(f"✅ Текст добавлен успешно")
-        return output
+        return full_output, thumb_output
         
     except Exception as e:
         print(f"❌ Ошибка добавления текста: {e}")
         import traceback
         print(traceback.format_exc())
-        return None
+        return None, None
 
 @bot.message_handler(commands=['start', 'help'])
 def start_command(message):
@@ -473,39 +491,30 @@ def inline_handler(inline_query):
         # РЕЖИМ 1: Коллаж
         if collage_count:
             image_urls = []
-            thumb_url = None
             
             for i in range(collage_count):
-                img_url, t_url = get_random_image(search_query)
+                img_url, _ = get_random_image(search_query)
                 if img_url:
                     image_urls.append(img_url)
-                    if not thumb_url:
-                        thumb_url = t_url
             
             if len(image_urls) >= 2:
-                collage_image = create_collage(image_urls, len(image_urls))
+                collage_full, collage_thumb = create_collage(image_urls, len(image_urls))
                 
-                if collage_image:
-                    # Создаем маленькое превью для коллажа
-                    collage_image.seek(0)
-                    thumb_img = Image.open(collage_image)
-                    thumb_img.thumbnail((200, 200), Image.Resampling.LANCZOS)
-                    thumb_output = BytesIO()
-                    thumb_img.save(thumb_output, format='JPEG', quality=70)
-                    thumb_output.seek(0)
-                    
+                if collage_full and collage_thumb:
                     # Сохраняем коллаж и превью во временное хранилище
                     image_id = f"collage_{int(time.time() * 1000)}"
                     thumb_id = f"thumb_{image_id}"
                     
-                    collage_image.seek(0)
-                    temp_images[image_id] = (collage_image.getvalue(), time.time())
-                    temp_images[thumb_id] = (thumb_output.getvalue(), time.time())
+                    temp_images[image_id] = (collage_full.getvalue(), time.time())
+                    temp_images[thumb_id] = (collage_thumb.getvalue(), time.time())
                     
                     # Создаем URL для коллажа и превью
                     hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "tgbotrandompic.onrender.com")
                     collage_url = f"https://{hostname}/image/{image_id}"
                     thumb_collage_url = f"https://{hostname}/image/{thumb_id}"
+                    
+                    print(f"✅ Коллаж URL: {collage_url}")
+                    print(f"✅ Превью URL: {thumb_collage_url}")
                     
                     result = telebot.types.InlineQueryResultPhoto(
                         id=image_id,
@@ -515,37 +524,30 @@ def inline_handler(inline_query):
                         description=f"{'Тема: ' + search_query if search_query else 'Случайные картинки'}"
                     )
                     results.append(result)
-                    print(f"✅ Коллаж создан: {collage_url}")
-                    print(f"✅ Превью коллажа: {thumb_collage_url}")
+                    print(f"✅ Коллаж добавлен в результаты")
         
         # РЕЖИМ 2: Текст на картинке
         elif text_to_add:
-            image_url, thumb_url = get_random_image(search_query)
+            image_url, _ = get_random_image(search_query)
             
             if image_url:
-                image_with_text = add_text_to_image(image_url, text_to_add)
+                text_full, text_thumb = add_text_to_image(image_url, text_to_add)
                 
-                if image_with_text:
-                    # Создаем маленькое превью для картинки с текстом
-                    image_with_text.seek(0)
-                    thumb_img = Image.open(image_with_text)
-                    thumb_img.thumbnail((200, 200), Image.Resampling.LANCZOS)
-                    thumb_output = BytesIO()
-                    thumb_img.save(thumb_output, format='JPEG', quality=70)
-                    thumb_output.seek(0)
-                    
+                if text_full and text_thumb:
                     # Сохраняем картинку с текстом и превью во временное хранилище
                     image_id = f"text_{int(time.time() * 1000)}"
                     thumb_id = f"thumb_{image_id}"
                     
-                    image_with_text.seek(0)
-                    temp_images[image_id] = (image_with_text.getvalue(), time.time())
-                    temp_images[thumb_id] = (thumb_output.getvalue(), time.time())
+                    temp_images[image_id] = (text_full.getvalue(), time.time())
+                    temp_images[thumb_id] = (text_thumb.getvalue(), time.time())
                     
                     # Создаем URL для картинки с текстом и превью
                     hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "tgbotrandompic.onrender.com")
                     text_image_url = f"https://{hostname}/image/{image_id}"
                     thumb_text_url = f"https://{hostname}/image/{thumb_id}"
+                    
+                    print(f"✅ Текст картинка URL: {text_image_url}")
+                    print(f"✅ Превью URL: {thumb_text_url}")
                     
                     result = telebot.types.InlineQueryResultPhoto(
                         id=image_id,
@@ -555,8 +557,7 @@ def inline_handler(inline_query):
                         description=f"{'На картинке: ' + search_query if search_query else 'Случайная картинка'}"
                     )
                     results.append(result)
-                    print(f"✅ Картинка с текстом: {text_image_url}")
-                    print(f"✅ Превью: {thumb_text_url}")
+                    print(f"✅ Картинка с текстом добавлена в результаты")
         
         # РЕЖИМ 3: Обычная картинка
         else:
