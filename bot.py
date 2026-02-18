@@ -33,7 +33,7 @@ try:
     current_webhook = bot.get_webhook_info()
     if current_webhook.url != webhook_url:
         bot.remove_webhook()
-        time.sleep(1)  # пауза для Telegram
+        time.sleep(1)
         success = bot.set_webhook(url=webhook_url)
         if success:
             print(f"Webhook успешно установлен на: {webhook_url}")
@@ -50,15 +50,26 @@ def get_random_unsplash_image(custom_query=None):
     url = f'https://api.unsplash.com/photos/random?query={query}&client_id={UNSPLASH_ACCESS_KEY}&orientation=landscape'
     
     try:
-        response = requests.get(url, timeout=5)  # уменьшил таймаут
+        response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
         image_url = data.get('urls', {}).get('regular')
-        print(f"Unsplash вернул URL: {image_url}")  # лог для отладки
-        return image_url
+        thumb_url = data.get('urls', {}).get('small')  # для превью
+        print(f"Unsplash вернул URL: {image_url}")
+        return image_url, thumb_url
     except Exception as e:
         print(f"Ошибка при запросе к Unsplash: {e}")
-        return None
+        return None, None
+
+# Команда /start
+@bot.message_handler(commands=['start'])
+def start_command(message):
+    bot.reply_to(message, 
+        'Привет! Я бот для отправки случайных картинок из Unsplash.\n\n'
+        '🔹 Упомяни меня в чате (@randompikcha2_bot) для кнопки с картинкой\n'
+        '🔹 Используй меня в inline-режиме: напиши @randompikcha2_bot в любом чате и нажми на результат\n'
+        '🔹 Можешь добавить запрос после @randompikcha2_bot (например: @randompikcha2_bot cats)'
+    )
 
 # Обычный режим — упоминание бота
 @bot.message_handler(func=lambda message: True)
@@ -74,69 +85,77 @@ def handle_mention(message):
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
     if call.data == 'send_random_img':
-        image_url = get_random_unsplash_image()
+        bot.answer_callback_query(call.id, "Загружаю картинку...")
+        image_url, _ = get_random_unsplash_image()
         if image_url:
             try:
-                response = requests.get(image_url, timeout=10)
-                response.raise_for_status()
-                bot.send_photo(call.message.chat.id, response.content)
+                bot.send_photo(call.message.chat.id, image_url)
             except Exception as e:
-                bot.reply_to(call.message, 'Не удалось скачать изображение :(')
+                bot.send_message(call.message.chat.id, 'Не удалось скачать изображение :(')
                 print(f"Ошибка отправки фото: {e}")
         else:
-            bot.reply_to(call.message, 'Не удалось найти картинку. Попробуй позже!')
+            bot.send_message(call.message.chat.id, 'Не удалось найти картинку. Попробуй позже!')
 
 # Inline-режим — когда набирают @bot в любом чате
 @bot.inline_handler(lambda query: True)
 def inline_handler(inline_query):
-    print(f"Получен inline-запрос: '{inline_query.query}' от пользователя {inline_query.from_user.id}")  # лог для отладки
+    print(f"Получен inline-запрос: '{inline_query.query}' от пользователя {inline_query.from_user.id}")
 
     query_text = inline_query.query.strip()
-
     results = []
 
-    # Всегда добавляем 2-3 результата для разнообразия, даже если запрос пустой
-    for i in range(3):  # 3 картинки
+    # Генерируем 3 картинки
+    for i in range(3):
         custom_query = query_text if query_text else None
-        image_url = get_random_unsplash_image(custom_query)
-        if image_url:
-            result_id = f"res_{i}_{random.randint(1, 10000)}"  # уникальный ID
-            title = "Случайная картинка из Unsplash" if not query_text else f"По запросу: {query_text} ({i+1})"
+        image_url, thumb_url = get_random_unsplash_image(custom_query)
+        
+        if image_url and thumb_url:
+            result_id = f"{inline_query.id}_{i}_{random.randint(1000, 9999)}"
+            title = "Случайная картинка" if not query_text else f"{query_text} #{i+1}"
+            
             results.append(
                 telebot.types.InlineQueryResultPhoto(
                     id=result_id,
                     photo_url=image_url,
-                    thumb_url=image_url.replace('w=1080', 'w=200'),  # уменьшенная превью для скорости
+                    thumbnail_url=thumb_url,  # правильное поле для превью
                     title=title,
-                    description="Нажми, чтобы отправить в чат"
+                    description="Нажми, чтобы отправить"
                 )
             )
 
     # Отвечаем Telegram
     try:
-        if results:
-            bot.answer_inline_query(inline_query.id, results, cache_time=60, is_personal=True)  # кэш 1 мин, персональный
-            print(f"Отправлено {len(results)} результатов для inline-запроса '{query_text}'")
-        else:
-            bot.answer_inline_query(inline_query.id, [])
-            print("Отправлен пустой результат для inline-запроса — не найдено картинок")
+        bot.answer_inline_query(
+            inline_query.id, 
+            results, 
+            cache_time=10,  # короткий кэш для разнообразия
+            is_personal=True
+        )
+        print(f"Отправлено {len(results)} результатов для inline-запроса '{query_text}'")
     except Exception as e:
         print(f"Ошибка при ответе на inline-запрос: {e}")
+        # Попытка отправить пустой результат, чтобы не зависло
+        try:
+            bot.answer_inline_query(inline_query.id, [])
+        except:
+            pass
 
 # Flask-приложение для webhook
 app = Flask(__name__)
 
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
 def webhook():
-    print("Получен POST-запрос от Telegram!")  # Лог для отладки
-    print(request.headers)
-    print(request.get_data(as_text=True))  # Сырой JSON
-
+    print("Получен POST-запрос от Telegram!")
+    
     if request.headers.get('content-type') == 'application/json':
         json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return 'OK', 200
+        try:
+            update = telebot.types.Update.de_json(json_string)
+            bot.process_new_updates([update])
+            return 'OK', 200
+        except Exception as e:
+            print(f"Ошибка обработки update: {e}")
+            return 'Error', 500
     else:
         abort(403)
 
@@ -144,7 +163,6 @@ def webhook():
 def index():
     return 'Bot is running', 200
 
-#if __name__ == '__main__':
-#    # Только для локального тестирования
-#    print("Запуск в режиме разработки (локально)")
-#    app.run(host='0.0.0.0', port=5000, debug=True)
+@app.route('/health')
+def health():
+    return 'OK', 200
