@@ -50,10 +50,11 @@ def get_random_unsplash_image(custom_query=None):
     url = f'https://api.unsplash.com/photos/random?query={query}&client_id={UNSPLASH_ACCESS_KEY}&orientation=landscape'
     
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=5)  # уменьшил таймаут
         response.raise_for_status()
         data = response.json()
         image_url = data.get('urls', {}).get('regular')
+        print(f"Unsplash вернул URL: {image_url}")  # лог для отладки
         return image_url
     except Exception as e:
         print(f"Ошибка при запросе к Unsplash: {e}")
@@ -88,43 +89,39 @@ def handle_callback(call):
 # Inline-режим — когда набирают @bot в любом чате
 @bot.inline_handler(lambda query: True)
 def inline_handler(inline_query):
+    print(f"Получен inline-запрос: '{inline_query.query}' от пользователя {inline_query.from_user.id}")  # лог для отладки
+
     query_text = inline_query.query.strip()
 
     results = []
 
-    # Если запрос пустой — одна случайная картинка
-    if not query_text:
-        image_url = get_random_unsplash_image()
+    # Всегда добавляем 2-3 результата для разнообразия, даже если запрос пустой
+    for i in range(3):  # 3 картинки
+        custom_query = query_text if query_text else None
+        image_url = get_random_unsplash_image(custom_query)
         if image_url:
+            result_id = f"res_{i}_{random.randint(1, 10000)}"  # уникальный ID
+            title = "Случайная картинка из Unsplash" if not query_text else f"По запросу: {query_text} ({i+1})"
             results.append(
                 telebot.types.InlineQueryResultPhoto(
-                    id="random_default",
+                    id=result_id,
                     photo_url=image_url,
-                    thumb_url=image_url,
-                    title="Случайная красивая картинка из Unsplash",
-                    description="Нажми, чтобы отправить"
-                )
-            )
-
-    # Если есть текст — используем его как запрос к Unsplash
-    else:
-        image_url = get_random_unsplash_image(query_text)
-        if image_url:
-            results.append(
-                telebot.types.InlineQueryResultPhoto(
-                    id="query_result",
-                    photo_url=image_url,
-                    thumb_url=image_url,
-                    title=f"По запросу: {query_text}",
-                    description="Отправить в чат"
+                    thumb_url=image_url.replace('w=1080', 'w=200'),  # уменьшенная превью для скорости
+                    title=title,
+                    description="Нажми, чтобы отправить в чат"
                 )
             )
 
     # Отвечаем Telegram
-    if results:
-        bot.answer_inline_query(inline_query.id, results, cache_time=1)
-    else:
-        bot.answer_inline_query(inline_query.id, [])
+    try:
+        if results:
+            bot.answer_inline_query(inline_query.id, results, cache_time=60, is_personal=True)  # кэш 1 мин, персональный
+            print(f"Отправлено {len(results)} результатов для inline-запроса '{query_text}'")
+        else:
+            bot.answer_inline_query(inline_query.id, [])
+            print("Отправлен пустой результат для inline-запроса — не найдено картинок")
+    except Exception as e:
+        print(f"Ошибка при ответе на inline-запрос: {e}")
 
 # Flask-приложение для webhook
 app = Flask(__name__)
@@ -148,6 +145,6 @@ def index():
     return 'Bot is running', 200
 
 #if __name__ == '__main__':
-    # Только для локального тестирования
- #   print("Запуск в режиме разработки (локально)")
-  #  app.run(host='0.0.0.0', port=5000, debug=True)
+#    # Только для локального тестирования
+#    print("Запуск в режиме разработки (локально)")
+#    app.run(host='0.0.0.0', port=5000, debug=True)
