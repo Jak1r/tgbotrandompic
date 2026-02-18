@@ -3,9 +3,13 @@ import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import random
 import requests
-from flask import Flask, request, abort
+from flask import Flask, request, abort, send_file
 from dotenv import load_dotenv
 import time
+from PIL import Image, ImageDraw, ImageFont
+from io import BytesIO
+import re
+import threading
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -49,6 +53,31 @@ app = Flask(__name__)
 # Счетчик для ротации API
 current_api_index = 0
 
+# Временное хранилище для сгенерированных картинок (с автоочисткой)
+temp_images = {}
+
+def cleanup_temp_images():
+    """Очищает старые картинки из памяти каждые 10 минут"""
+    while True:
+        time.sleep(600)  # 10 минут
+        current_time = time.time()
+        to_delete = []
+        
+        for image_id, (data, timestamp) in temp_images.items():
+            # Удаляем картинки старше 15 минут
+            if current_time - timestamp > 900:
+                to_delete.append(image_id)
+        
+        for image_id in to_delete:
+            del temp_images[image_id]
+            
+        if to_delete:
+            print(f"🧹 Очищено {len(to_delete)} старых картинок из памяти")
+
+# Запускаем очистку в фоне
+cleanup_thread = threading.Thread(target=cleanup_temp_images, daemon=True)
+cleanup_thread.start()
+
 def setup_webhook():
     webhook_path = f'/{TELEGRAM_TOKEN}'
     hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "tgbotrandompic.onrender.com")
@@ -69,7 +98,7 @@ def setup_webhook():
     except Exception as e:
         print(f"❌ Ошибка при установке webhook: {e}")
 
-# Функция получения картинки с Unsplash
+# Функции для работы с API
 def get_unsplash_image(query):
     url = f'https://api.unsplash.com/photos/random?query={query}&client_id={UNSPLASH_ACCESS_KEY}'
     
@@ -78,7 +107,7 @@ def get_unsplash_image(query):
         
         if response.status_code == 429:
             print(f"⚠️ Unsplash rate limit достигнут")
-            return None, None, True  # True = rate limit
+            return None, None, True
         
         response.raise_for_status()
         data = response.json()
@@ -94,7 +123,6 @@ def get_unsplash_image(query):
         print(f"❌ Ошибка Unsplash: {e}")
         return None, None, False
 
-# Функция получения картинки с Pexels
 def get_pexels_image(query):
     url = f'https://api.pexels.com/v1/search?query={query}&per_page=1&page={random.randint(1, 100)}'
     
@@ -114,7 +142,7 @@ def get_pexels_image(query):
         
         if data.get('photos') and len(data['photos']) > 0:
             photo = data['photos'][0]
-            image_url = photo['src']['large']  # или 'large2x' для большего размера
+            image_url = photo['src']['large']
             thumb_url = photo['src']['small']
             
             print(f"✅ Pexels: получена картинка")
@@ -127,7 +155,6 @@ def get_pexels_image(query):
         print(f"❌ Ошибка Pexels: {e}")
         return None, None, False
 
-# Функция получения картинки с Pixabay
 def get_pixabay_image(query):
     url = f'https://pixabay.com/api/?key={PIXABAY_API_KEY}&q={query}&image_type=photo&per_page=3&page={random.randint(1, 50)}'
     
@@ -156,13 +183,11 @@ def get_pixabay_image(query):
         print(f"❌ Ошибка Pixabay: {e}")
         return None, None, False
 
-# Главная функция с ротацией API
 def get_random_image(custom_query=None):
     global current_api_index
     
     query = custom_query or random.choice(RANDOM_QUERIES)
     
-    # Пробуем все доступные API по очереди
     for attempt in range(len(available_apis)):
         api_name = available_apis[current_api_index]
         
@@ -170,7 +195,6 @@ def get_random_image(custom_query=None):
         
         image_url, thumb_url, rate_limited = None, None, False
         
-        # Вызываем соответствующий API
         if api_name == 'unsplash':
             image_url, thumb_url, rate_limited = get_unsplash_image(query)
         elif api_name == 'pexels':
@@ -178,32 +202,212 @@ def get_random_image(custom_query=None):
         elif api_name == 'pixabay':
             image_url, thumb_url, rate_limited = get_pixabay_image(query)
         
-        # Если получили картинку - возвращаем
         if image_url and thumb_url:
-            # Переключаемся на следующий API для равномерной нагрузки
             current_api_index = (current_api_index + 1) % len(available_apis)
             return image_url, thumb_url
         
-        # Если rate limit - переключаемся на следующий API
         if rate_limited:
             print(f"⚠️ {api_name.upper()} rate limit, переключаемся на следующий API")
             current_api_index = (current_api_index + 1) % len(available_apis)
             continue
         
-        # Если просто не нашли картинку - пробуем следующий API
         current_api_index = (current_api_index + 1) % len(available_apis)
     
     print(f"❌ Все API не вернули результат для '{query}'")
     return None, None
 
-@bot.message_handler(commands=['start'])
+# ФУНКЦИЯ: Создание коллажа
+def create_collage(image_urls, count):
+    """Создает коллаж из нескольких картинок"""
+    try:
+        print(f"🎨 Создаем коллаж из {count} картинок")
+        
+        # Скачиваем все картинки
+        images = []
+        for url in image_urls[:count]:
+            try:
+                response = requests.get(url, timeout=10)
+                img = Image.open(BytesIO(response.content))
+                # Конвертируем в RGB если нужно
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+                images.append(img)
+            except Exception as e:
+                print(f"❌ Ошибка загрузки картинки: {e}")
+                continue
+        
+        if not images:
+            return None
+        
+        # Определяем размеры коллажа
+        if count <= 4:
+            cols = 2
+            rows = (count + 1) // 2
+        elif count <= 9:
+            cols = 3
+            rows = (count + 2) // 3
+        else:
+            cols = 4
+            rows = (count + 3) // 4
+        
+        # Размер каждой ячейки
+        cell_width = 400
+        cell_height = 400
+        
+        # Создаем холст
+        collage_width = cols * cell_width
+        collage_height = rows * cell_height
+        collage = Image.new('RGB', (collage_width, collage_height), 'white')
+        
+        # Размещаем картинки
+        for idx, img in enumerate(images):
+            # Изменяем размер с сохранением пропорций
+            img.thumbnail((cell_width, cell_height), Image.Resampling.LANCZOS)
+            
+            # Вычисляем позицию
+            col = idx % cols
+            row = idx // cols
+            
+            # Центрируем картинку в ячейке
+            x = col * cell_width + (cell_width - img.width) // 2
+            y = row * cell_height + (cell_height - img.height) // 2
+            
+            collage.paste(img, (x, y))
+        
+        # Сохраняем в BytesIO
+        output = BytesIO()
+        collage.save(output, format='JPEG', quality=85)
+        output.seek(0)
+        
+        print(f"✅ Коллаж создан успешно ({collage_width}x{collage_height})")
+        return output
+        
+    except Exception as e:
+        print(f"❌ Ошибка создания коллажа: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return None
+
+# ФУНКЦИЯ: Добавление текста на картинку
+def add_text_to_image(image_url, text):
+    """Добавляет текст внизу картинки как в мемах"""
+    try:
+        print(f"📝 Добавляем текст: '{text}'")
+        
+        # Скачиваем картинку
+        response = requests.get(image_url, timeout=10)
+        img = Image.open(BytesIO(response.content))
+        
+        # Конвертируем в RGB если нужно
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        
+        # Ограничиваем размер
+        max_size = 1200
+        if img.width > max_size or img.height > max_size:
+            img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+        
+        draw = ImageDraw.Draw(img)
+        
+        # Размер шрифта
+        font_size = int(img.height * 0.08)  # 8% от высоты картинки
+        font = None
+        
+        # Попытка загрузить шрифт с поддержкой кириллицы
+        font_paths = [
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',  # Linux
+            '/System/Library/Fonts/Helvetica.ttc',  # macOS
+            'C:\\Windows\\Fonts\\Arial.ttf',  # Windows
+        ]
+        
+        for font_path in font_paths:
+            try:
+                font = ImageFont.truetype(font_path, font_size)
+                print(f"✅ Используем шрифт: {font_path}")
+                break
+            except:
+                continue
+        
+        # Если не нашли шрифт, используем дефолтный
+        if font is None:
+            print(f"⚠️ Используем дефолтный шрифт")
+            font = ImageFont.load_default()
+        
+        # Разбиваем длинный текст на строки
+        max_width = img.width - 40  # Отступы по 20px с каждой стороны
+        words = text.split()
+        lines = []
+        current_line = []
+        
+        for word in words:
+            test_line = ' '.join(current_line + [word])
+            bbox = draw.textbbox((0, 0), test_line, font=font)
+            text_width = bbox[2] - bbox[0]
+            
+            if text_width <= max_width:
+                current_line.append(word)
+            else:
+                if current_line:
+                    lines.append(' '.join(current_line))
+                current_line = [word]
+        
+        if current_line:
+            lines.append(' '.join(current_line))
+        
+        # Рисуем каждую строку
+        y_offset = img.height - 60  # Начинаем с низа
+        
+        for line in reversed(lines):  # Рисуем снизу вверх
+            bbox = draw.textbbox((0, 0), line, font=font)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+            
+            # Позиция текста (по центру)
+            x = (img.width - text_width) // 2
+            y = y_offset - text_height
+            
+            # Рисуем обводку (черную)
+            outline_range = 3
+            for adj_x in range(-outline_range, outline_range + 1):
+                for adj_y in range(-outline_range, outline_range + 1):
+                    draw.text((x + adj_x, y + adj_y), line, font=font, fill='black')
+            
+            # Рисуем основной текст (белый)
+            draw.text((x, y), line, font=font, fill='white')
+            
+            y_offset = y - 10  # Отступ между строками
+        
+        # Сохраняем в BytesIO
+        output = BytesIO()
+        img.save(output, format='JPEG', quality=90)
+        output.seek(0)
+        
+        print(f"✅ Текст добавлен успешно")
+        return output
+        
+    except Exception as e:
+        print(f"❌ Ошибка добавления текста: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return None
+
+@bot.message_handler(commands=['start', 'help'])
 def start_command(message):
-    bot.reply_to(message, 
-        '🎨 Привет! Я бот для отправки случайных картинок.\n\n'
-        '📸 Используй меня в inline-режиме:\n'
-        'Напиши мое имя в любом чате и добавь запрос (например: cats, nature)\n\n'
-        f'🔑 Подключено API: {", ".join(available_apis)}'
+    help_text = (
+        '🎨 *Привет! Я бот для работы с картинками.*\n\n'
+        '📸 *Основные режимы:*\n'
+        '• Просто введи мое имя — одна случайная картинка\n'
+        '• `@bot cats` — картинка с котами\n'
+        '• `@bot 5` — коллаж из 5 картинок (2-10)\n'
+        '• `@bot 7 nature` — коллаж из 7 картинок природы\n\n'
+        '📝 *Текст на картинках:*\n'
+        '• `@bot text "Hello"` — картинка с текстом "Hello"\n'
+        '• `@bot text "Привет мир"` — поддержка русского!\n'
+        '• `@bot text "Котики" cats` — картинка с котами и текстом\n\n'
+        f'🔑 API: {", ".join(available_apis)}\n'
+        f'💾 Лимит: ~5000+ картинок/час'
     )
+    bot.reply_to(message, help_text, parse_mode='Markdown')
 
 @bot.message_handler(func=lambda message: True)
 def handle_mention(message):
@@ -236,27 +440,117 @@ def inline_handler(inline_query):
     results = []
 
     try:
-        custom_query = query_text if query_text else None
-        image_url, thumb_url = get_random_image(custom_query)
+        # Парсим запрос
+        collage_count = None
+        text_to_add = None
+        search_query = None
         
-        if image_url and thumb_url:
-            result_id = str(int(time.time() * 1000))
-            title = "📸 Случайная картинка" if not query_text else f"📸 {query_text}"
+        # Проверяем на команду "text"
+        text_match = re.search(r'text\s+"([^"]+)"', query_text, re.IGNORECASE)
+        if text_match:
+            text_to_add = text_match.group(1)
+            # Убираем часть с текстом из запроса
+            query_text = re.sub(r'text\s+"[^"]+"', '', query_text, flags=re.IGNORECASE).strip()
+            print(f"📝 Найден текст для добавления: '{text_to_add}'")
+        
+        # Проверяем на цифру (коллаж)
+        if query_text and not text_to_add:
+            parts = query_text.split(maxsplit=1)
+            if parts[0].isdigit():
+                collage_count = int(parts[0])
+                if collage_count < 2:
+                    collage_count = 2
+                elif collage_count > 10:
+                    collage_count = 10
+                
+                search_query = parts[1] if len(parts) > 1 else None
+                print(f"🎨 Запрошен коллаж из {collage_count} картинок")
+            else:
+                search_query = query_text
+        elif query_text:
+            search_query = query_text
+        
+        # РЕЖИМ 1: Коллаж
+        if collage_count:
+            image_urls = []
+            thumb_url = None
             
-            result = telebot.types.InlineQueryResultPhoto(
-                id=result_id,
-                photo_url=image_url,
-                thumbnail_url=thumb_url,
-                photo_width=1080,
-                photo_height=720,
-                title=title,
-                description="Нажми, чтобы отправить"
-            )
+            for i in range(collage_count):
+                img_url, t_url = get_random_image(search_query)
+                if img_url:
+                    image_urls.append(img_url)
+                    if not thumb_url:
+                        thumb_url = t_url
             
-            results.append(result)
-            print(f"✅ Создан inline результат")
+            if len(image_urls) >= 2:
+                collage_image = create_collage(image_urls, len(image_urls))
+                
+                if collage_image:
+                    # Сохраняем коллаж во временное хранилище
+                    image_id = f"collage_{int(time.time() * 1000)}"
+                    temp_images[image_id] = (collage_image.getvalue(), time.time())
+                    
+                    # Создаем URL для коллажа
+                    hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "tgbotrandompic.onrender.com")
+                    collage_url = f"https://{hostname}/image/{image_id}"
+                    
+                    result = telebot.types.InlineQueryResultPhoto(
+                        id=image_id,
+                        photo_url=collage_url,
+                        thumbnail_url=thumb_url or image_urls[0],
+                        title=f"🎨 Коллаж из {len(image_urls)} картинок",
+                        description=f"{'Тема: ' + search_query if search_query else 'Случайные картинки'}"
+                    )
+                    results.append(result)
+                    print(f"✅ Коллаж создан и сохранен: {image_id}")
+        
+        # РЕЖИМ 2: Текст на картинке
+        elif text_to_add:
+            image_url, thumb_url = get_random_image(search_query)
+            
+            if image_url:
+                image_with_text = add_text_to_image(image_url, text_to_add)
+                
+                if image_with_text:
+                    # Сохраняем картинку с текстом во временное хранилище
+                    image_id = f"text_{int(time.time() * 1000)}"
+                    temp_images[image_id] = (image_with_text.getvalue(), time.time())
+                    
+                    # Создаем URL для картинки с текстом
+                    hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "tgbotrandompic.onrender.com")
+                    text_image_url = f"https://{hostname}/image/{image_id}"
+                    
+                    result = telebot.types.InlineQueryResultPhoto(
+                        id=image_id,
+                        photo_url=text_image_url,
+                        thumbnail_url=thumb_url or image_url,
+                        title=f"📝 \"{text_to_add}\"",
+                        description=f"{'На картинке: ' + search_query if search_query else 'Случайная картинка'}"
+                    )
+                    results.append(result)
+                    print(f"✅ Картинка с текстом создана: {image_id}")
+        
+        # РЕЖИМ 3: Обычная картинка
         else:
-            print(f"⚠️ Не удалось получить картинку")
+            image_url, thumb_url = get_random_image(search_query)
+            
+            if image_url and thumb_url:
+                result_id = str(int(time.time() * 1000))
+                title = "📸 Случайная картинка" if not search_query else f"📸 {search_query}"
+                
+                result = telebot.types.InlineQueryResultPhoto(
+                    id=result_id,
+                    photo_url=image_url,
+                    thumbnail_url=thumb_url,
+                    photo_width=1080,
+                    photo_height=720,
+                    title=title,
+                    description="Нажми, чтобы отправить"
+                )
+                
+                results.append(result)
+                print(f"✅ Создан inline результат")
+        
     except Exception as e:
         print(f"❌ Ошибка при создании результата: {e}")
         import traceback
@@ -265,13 +559,16 @@ def inline_handler(inline_query):
     try:
         if results:
             bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
-            print(f"✅ Отправлен результат в Telegram")
+            print(f"✅ Отправлено {len(results)} результатов в Telegram")
         else:
             bot.answer_inline_query(inline_query.id, [], cache_time=0)
             print(f"⚠️ Отправлен пустой ответ в Telegram")
     except Exception as e:
         print(f"❌ Ошибка при ответе Telegram: {e}")
+        import traceback
+        print(traceback.format_exc())
 
+# Flask роуты
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
@@ -288,11 +585,27 @@ def webhook():
 
 @app.route('/')
 def index():
-    return f'🤖 Bot is running! APIs: {", ".join(available_apis)}', 200
+    return f'🤖 Bot is running! APIs: {", ".join(available_apis)} | Images in memory: {len(temp_images)}', 200
 
 @app.route('/health')
 def health():
     return 'OK', 200
+
+# Роут для отдачи сгенерированных картинок
+@app.route('/image/<image_id>')
+def serve_image(image_id):
+    """Отдает сгенерированную картинку по ID"""
+    if image_id in temp_images:
+        image_data, _ = temp_images[image_id]
+        return send_file(
+            BytesIO(image_data),
+            mimetype='image/jpeg',
+            as_attachment=False,
+            download_name=f'{image_id}.jpg'
+        )
+    else:
+        print(f"⚠️ Картинка {image_id} не найдена в памяти")
+        abort(404)
 
 if __name__ != '__main__':
     setup_webhook()
