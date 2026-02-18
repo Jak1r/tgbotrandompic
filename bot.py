@@ -250,9 +250,9 @@ def create_collage(image_urls, count):
             cols = 4
             rows = (count + 3) // 4
         
-        # Размер каждой ячейки
-        cell_width = 400
-        cell_height = 400
+        # УМЕНЬШЕННЫЙ размер каждой ячейки
+        cell_width = 300  # было 400
+        cell_height = 300  # было 400
         
         # Создаем холст
         collage_width = cols * cell_width
@@ -276,19 +276,25 @@ def create_collage(image_urls, count):
         
         # Создаем превью ДО сохранения в JPEG
         thumb = collage.copy()
-        thumb.thumbnail((200, 200), Image.Resampling.LANCZOS)
+        thumb.thumbnail((320, 320), Image.Resampling.LANCZOS)  # было 200x200
         
-        # Сохраняем полное изображение
+        # Сохраняем полное изображение с МЕНЬШИМ качеством
         full_output = BytesIO()
-        collage.save(full_output, format='JPEG', quality=85)
+        collage.save(full_output, format='JPEG', quality=75, optimize=True)  # было quality=85
         full_output.seek(0)
         
-        # Сохраняем превью
+        # Сохраняем превью с еще меньшим качеством
         thumb_output = BytesIO()
-        thumb.save(thumb_output, format='JPEG', quality=70)
+        thumb.save(thumb_output, format='JPEG', quality=60, optimize=True)  # было quality=70
         thumb_output.seek(0)
         
+        full_size = len(full_output.getvalue())
+        thumb_size = len(thumb_output.getvalue())
+        
         print(f"✅ Коллаж создан успешно ({collage_width}x{collage_height})")
+        print(f"   Размер полного: {full_size} байт ({full_size/1024:.1f} KB)")
+        print(f"   Размер превью: {thumb_size} байт ({thumb_size/1024:.1f} KB)")
+        
         return full_output, thumb_output
         
     except Exception as e:
@@ -311,8 +317,8 @@ def add_text_to_image(image_url, text):
         if img.mode != 'RGB':
             img = img.convert('RGB')
         
-        # Ограничиваем размер
-        max_size = 1200
+        # УМЕНЬШЕННЫЙ максимальный размер
+        max_size = 1000  # было 1200
         if img.width > max_size or img.height > max_size:
             img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
         
@@ -388,19 +394,25 @@ def add_text_to_image(image_url, text):
         
         # Создаем превью ДО сохранения в JPEG
         thumb = img.copy()
-        thumb.thumbnail((200, 200), Image.Resampling.LANCZOS)
+        thumb.thumbnail((320, 320), Image.Resampling.LANCZOS)  # было 200x200
         
-        # Сохраняем полное изображение
+        # Сохраняем полное изображение с МЕНЬШИМ качеством
         full_output = BytesIO()
-        img.save(full_output, format='JPEG', quality=90)
+        img.save(full_output, format='JPEG', quality=80, optimize=True)  # было quality=90
         full_output.seek(0)
         
-        # Сохраняем превью
+        # Сохраняем превью с меньшим качеством
         thumb_output = BytesIO()
-        thumb.save(thumb_output, format='JPEG', quality=70)
+        thumb.save(thumb_output, format='JPEG', quality=60, optimize=True)  # было quality=70
         thumb_output.seek(0)
         
+        full_size = len(full_output.getvalue())
+        thumb_size = len(thumb_output.getvalue())
+        
         print(f"✅ Текст добавлен успешно")
+        print(f"   Размер полного: {full_size} байт ({full_size/1024:.1f} KB)")
+        print(f"   Размер превью: {thumb_size} байт ({thumb_size/1024:.1f} KB)")
+        
         return full_output, thumb_output
         
     except Exception as e:
