@@ -12,7 +12,7 @@ load_dotenv()
 
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 UNSPLASH_ACCESS_KEY = os.environ.get('UNSPLASH_ACCESS_KEY')
-PORT = int(os.environ.get('PORT', 10000))  # Важно!
+PORT = int(os.environ.get('PORT', 10000))
 
 if not TELEGRAM_TOKEN or not UNSPLASH_ACCESS_KEY:
     raise ValueError("TELEGRAM_TOKEN или UNSPLASH_ACCESS_KEY не заданы в переменных окружения")
@@ -29,7 +29,7 @@ bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
 # Flask-приложение для webhook
 app = Flask(__name__)
 
-# Авто-установка webhook при запуске (ПОСЛЕ создания app)
+# Авто-установка webhook при запуске
 def setup_webhook():
     webhook_path = f'/{TELEGRAM_TOKEN}'
     hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "tgbotrandompic.onrender.com")
@@ -59,9 +59,14 @@ def get_random_unsplash_image(custom_query=None):
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
-        image_url = data.get('urls', {}).get('regular')
-        thumb_url = data.get('urls', {}).get('small')
-        print(f"Unsplash вернул URL: {image_url}")
+        
+        # Используем разные размеры из Unsplash API
+        image_url = data.get('urls', {}).get('regular')  # Основное изображение
+        thumb_url = data.get('urls', {}).get('thumb')     # Маленькое превью (200x200)
+        
+        print(f"✅ Unsplash вернул URL: {image_url}")
+        print(f"✅ Thumbnail URL: {thumb_url}")
+        
         return image_url, thumb_url
     except Exception as e:
         print(f"❌ Ошибка при запросе к Unsplash: {e}")
@@ -74,7 +79,7 @@ def start_command(message):
         'Привет! Я бот для отправки случайных картинок из Unsplash.\n\n'
         '🔹 Упомяни меня в чате для кнопки с картинкой\n'
         '🔹 Используй меня в inline-режиме: напиши мой юзернейм в любом чате\n'
-        '🔹 Можешь добавить запрос (например: cats, nature)'
+        '🔹 Можешь добавить запрос после имени (например: @bot cats)'
     )
 
 # Обычный режим — упоминание бота
@@ -110,14 +115,14 @@ def inline_handler(inline_query):
     query_text = inline_query.query.strip()
     results = []
 
-    # Генерируем 3 картинки
-    for i in range(3):
+    # Генерируем ОДНУ картинку
+    try:
         custom_query = query_text if query_text else None
         image_url, thumb_url = get_random_unsplash_image(custom_query)
         
         if image_url and thumb_url:
-            result_id = f"{inline_query.id}_{i}_{random.randint(1000, 9999)}"
-            title = "Случайная картинка" if not query_text else f"{query_text} #{i+1}"
+            result_id = f"{int(time.time())}_{random.randint(1000, 9999)}"
+            title = "Случайная картинка из Unsplash" if not query_text else f"Картинка: {query_text}"
             
             results.append(
                 telebot.types.InlineQueryResultPhoto(
@@ -128,22 +133,27 @@ def inline_handler(inline_query):
                     description="Нажми, чтобы отправить"
                 )
             )
+            print(f"✅ Создан результат: {result_id}")
+        else:
+            print(f"⚠️ Не удалось получить картинку")
+    except Exception as e:
+        print(f"❌ Ошибка при создании результата: {e}")
 
     # Отвечаем Telegram
     try:
-        bot.answer_inline_query(
-            inline_query.id, 
-            results, 
-            cache_time=10,
-            is_personal=True
-        )
-        print(f"✅ Отправлено {len(results)} результатов для inline-запроса '{query_text}'")
+        if results:
+            bot.answer_inline_query(
+                inline_query.id, 
+                results, 
+                cache_time=1,  # Минимальный кэш для максимальной случайности
+                is_personal=True
+            )
+            print(f"✅ Отправлен результат для inline-запроса '{query_text}'")
+        else:
+            bot.answer_inline_query(inline_query.id, [], cache_time=1)
+            print(f"⚠️ Отправлен пустой результат - не удалось получить картинку")
     except Exception as e:
         print(f"❌ Ошибка при ответе на inline-запрос: {e}")
-        try:
-            bot.answer_inline_query(inline_query.id, [])
-        except:
-            pass
 
 # Роуты Flask
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
@@ -172,5 +182,4 @@ def health():
 
 # Инициализация при запуске
 if __name__ != '__main__':
-    # Gunicorn запускает приложение
     setup_webhook()
