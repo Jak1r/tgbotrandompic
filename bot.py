@@ -60,10 +60,13 @@ def get_random_unsplash_image(custom_query=None):
         response.raise_for_status()
         data = response.json()
         
-        # Получаем правильные URL из API
+        # Получаем URL разных размеров
         urls = data.get('urls', {})
-        image_url = urls.get('regular')  # Полноразмерное изображение
-        thumb_url = urls.get('small')    # Маленькое изображение для превью
+        
+        # Для inline результатов используем средний размер как основное фото
+        image_url = urls.get('regular')  # ~1080px по ширине
+        # Для превью - самый маленький размер
+        thumb_url = urls.get('thumb')    # 200x200px - это важно!
         
         print(f"✅ Image URL: {image_url}")
         print(f"✅ Thumb URL: {thumb_url}")
@@ -122,23 +125,24 @@ def inline_handler(inline_query):
         image_url, thumb_url = get_random_unsplash_image(custom_query)
         
         if image_url and thumb_url:
-            result_id = f"{int(time.time())}_{random.randint(1000, 9999)}"
-            title = "Случайная картинка из Unsplash" if not query_text else f"Картинка: {query_text}"
+            result_id = str(int(time.time() * 1000))  # Используем миллисекунды для уникальности
+            title = "📸 Случайная картинка" if not query_text else f"📸 {query_text}"
             
+            # ВАЖНО: используем photo_width и photo_height для лучшей совместимости
             result = telebot.types.InlineQueryResultPhoto(
                 id=result_id,
                 photo_url=image_url,
                 thumbnail_url=thumb_url,
+                photo_width=1080,  # Указываем размеры
+                photo_height=720,
                 title=title,
                 description="Нажми, чтобы отправить"
             )
             
             results.append(result)
-            print(f"✅ Создан результат: {result_id}")
-            print(f"   Photo URL: {image_url}")
-            print(f"   Thumb URL: {thumb_url}")
+            print(f"✅ Создан inline результат ID: {result_id}")
         else:
-            print(f"⚠️ Не удалось получить картинку от Unsplash")
+            print(f"⚠️ Не удалось получить URL картинок")
     except Exception as e:
         print(f"❌ Ошибка при создании результата: {e}")
         import traceback
@@ -149,16 +153,17 @@ def inline_handler(inline_query):
         if results:
             bot.answer_inline_query(
                 inline_query.id, 
-                results, 
-                cache_time=0,  # Отключаем кэш полностью для тестирования
+                results,
+                cache_time=0,
                 is_personal=True
             )
-            print(f"✅ Отправлен результат для inline-запроса '{query_text}'")
+            print(f"✅ Отправлено {len(results)} результатов Telegram")
         else:
+            # Если нет результатов, все равно отвечаем
             bot.answer_inline_query(inline_query.id, [], cache_time=0)
-            print(f"⚠️ Отправлен пустой результат - не удалось получить картинку")
+            print(f"⚠️ Отправлен пустой ответ Telegram")
     except Exception as e:
-        print(f"❌ Ошибка при ответе на inline-запрос: {e}")
+        print(f"❌ ОШИБКА при ответе Telegram API: {e}")
         import traceback
         print(traceback.format_exc())
 
