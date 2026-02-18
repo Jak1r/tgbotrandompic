@@ -621,19 +621,38 @@ def health():
     return 'OK', 200
 
 # Роут для отдачи сгенерированных картинок
-@app.route('/image/<image_id>')
+@app.route('/image/<image_id>', methods=['GET', 'HEAD'])
 def serve_image(image_id):
     """Отдает сгенерированную картинку по ID"""
+    print(f"🔍 {request.method} запрос картинки: {image_id}")
+    print(f"🔍 Картинок в памяти: {len(temp_images)}")
+    
     if image_id in temp_images:
-        image_data, _ = temp_images[image_id]
-        return send_file(
+        image_data, timestamp = temp_images[image_id]
+        print(f"✅ Картинка найдена, размер: {len(image_data)} байт")
+        
+        # Для HEAD запроса просто возвращаем заголовки
+        if request.method == 'HEAD':
+            response = app.make_response('')
+            response.headers['Content-Type'] = 'image/jpeg'
+            response.headers['Content-Length'] = str(len(image_data))
+            response.headers['Access-Control-Allow-Origin'] = '*'
+            response.headers['Cache-Control'] = 'public, max-age=3600'
+            return response
+        
+        # Для GET возвращаем саму картинку
+        response = send_file(
             BytesIO(image_data),
             mimetype='image/jpeg',
             as_attachment=False,
             download_name=f'{image_id}.jpg'
         )
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Cache-Control'] = 'public, max-age=3600'
+        return response
     else:
-        print(f"⚠️ Картинка {image_id} не найдена в памяти")
+        print(f"❌ Картинка {image_id} НЕ найдена в памяти")
+        print(f"   Доступные ID в памяти: {list(temp_images.keys())[:5]}")
         abort(404)
 
 if __name__ != '__main__':
