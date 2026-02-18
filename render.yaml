@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: tgbotrandompic
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn bot:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: TELEGRAM_TOKEN
+        sync: false
+      - key: UNSPLASH_ACCESS_KEY
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.11.0
