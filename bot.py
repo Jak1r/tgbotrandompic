@@ -486,23 +486,37 @@ def inline_handler(inline_query):
                 collage_image = create_collage(image_urls, len(image_urls))
                 
                 if collage_image:
-                    # Сохраняем коллаж во временное хранилище
-                    image_id = f"collage_{int(time.time() * 1000)}"
-                    temp_images[image_id] = (collage_image.getvalue(), time.time())
+                    # Создаем маленькое превью для коллажа
+                    collage_image.seek(0)
+                    thumb_img = Image.open(collage_image)
+                    thumb_img.thumbnail((200, 200), Image.Resampling.LANCZOS)
+                    thumb_output = BytesIO()
+                    thumb_img.save(thumb_output, format='JPEG', quality=70)
+                    thumb_output.seek(0)
                     
-                    # Создаем URL для коллажа
+                    # Сохраняем коллаж и превью во временное хранилище
+                    image_id = f"collage_{int(time.time() * 1000)}"
+                    thumb_id = f"thumb_{image_id}"
+                    
+                    collage_image.seek(0)
+                    temp_images[image_id] = (collage_image.getvalue(), time.time())
+                    temp_images[thumb_id] = (thumb_output.getvalue(), time.time())
+                    
+                    # Создаем URL для коллажа и превью
                     hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "tgbotrandompic.onrender.com")
                     collage_url = f"https://{hostname}/image/{image_id}"
+                    thumb_collage_url = f"https://{hostname}/image/{thumb_id}"
                     
                     result = telebot.types.InlineQueryResultPhoto(
                         id=image_id,
                         photo_url=collage_url,
-                        thumbnail_url=thumb_url or image_urls[0],
+                        thumbnail_url=thumb_collage_url,
                         title=f"🎨 Коллаж из {len(image_urls)} картинок",
                         description=f"{'Тема: ' + search_query if search_query else 'Случайные картинки'}"
                     )
                     results.append(result)
-                    print(f"✅ Коллаж создан и сохранен: {image_id}")
+                    print(f"✅ Коллаж создан: {collage_url}")
+                    print(f"✅ Превью коллажа: {thumb_collage_url}")
         
         # РЕЖИМ 2: Текст на картинке
         elif text_to_add:
@@ -512,23 +526,37 @@ def inline_handler(inline_query):
                 image_with_text = add_text_to_image(image_url, text_to_add)
                 
                 if image_with_text:
-                    # Сохраняем картинку с текстом во временное хранилище
-                    image_id = f"text_{int(time.time() * 1000)}"
-                    temp_images[image_id] = (image_with_text.getvalue(), time.time())
+                    # Создаем маленькое превью для картинки с текстом
+                    image_with_text.seek(0)
+                    thumb_img = Image.open(image_with_text)
+                    thumb_img.thumbnail((200, 200), Image.Resampling.LANCZOS)
+                    thumb_output = BytesIO()
+                    thumb_img.save(thumb_output, format='JPEG', quality=70)
+                    thumb_output.seek(0)
                     
-                    # Создаем URL для картинки с текстом
+                    # Сохраняем картинку с текстом и превью во временное хранилище
+                    image_id = f"text_{int(time.time() * 1000)}"
+                    thumb_id = f"thumb_{image_id}"
+                    
+                    image_with_text.seek(0)
+                    temp_images[image_id] = (image_with_text.getvalue(), time.time())
+                    temp_images[thumb_id] = (thumb_output.getvalue(), time.time())
+                    
+                    # Создаем URL для картинки с текстом и превью
                     hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "tgbotrandompic.onrender.com")
                     text_image_url = f"https://{hostname}/image/{image_id}"
+                    thumb_text_url = f"https://{hostname}/image/{thumb_id}"
                     
                     result = telebot.types.InlineQueryResultPhoto(
                         id=image_id,
                         photo_url=text_image_url,
-                        thumbnail_url=thumb_url or image_url,
+                        thumbnail_url=thumb_text_url,
                         title=f"📝 \"{text_to_add}\"",
                         description=f"{'На картинке: ' + search_query if search_query else 'Случайная картинка'}"
                     )
                     results.append(result)
-                    print(f"✅ Картинка с текстом создана: {image_id}")
+                    print(f"✅ Картинка с текстом: {text_image_url}")
+                    print(f"✅ Превью: {thumb_text_url}")
         
         # РЕЖИМ 3: Обычная картинка
         else:
