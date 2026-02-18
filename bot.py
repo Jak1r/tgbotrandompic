@@ -53,7 +53,40 @@ def handle_callback(call):
                 bot.reply_to(call.message, 'Не удалось скачать изображение :(')
         else:
             bot.reply_to(call.message, 'Не удалось найти картинку. Попробуй позже!')
+# ... весь предыдущий код остается ...
 
+# Inline mode handler
+@bot.inline_query()
+def inline_query_handler(inline_query):
+    query_text = inline_query.query.strip().lower()
+
+    # Если ничего не ввели — просто рандом
+    if not query_text:
+        image_url = get_random_unsplash_image()  # твоя функция
+        if image_url:
+            result = telebot.types.InlineQueryResultPhoto(
+                id=str(random.randint(1, 1000000)),
+                photo_url=image_url,
+                thumb_url=image_url,  # маленькая превьюшка
+                title="Случайная картинка",
+                description="Нажми, чтобы отправить"
+            )
+            bot.answer_inline_query(inline_query.id, [result], cache_time=1)
+        return
+
+    # Если ввели текст — можно искать по query_text
+    # Для примера просто берём рандом, но можно улучшить
+    image_url = get_random_unsplash_image()  # или сделай запрос с query_text
+    if image_url:
+        result = telebot.types.InlineQueryResultPhoto(
+            id=str(random.randint(1, 1000000)),
+            photo_url=image_url,
+            thumb_url=image_url,
+            title=f"Картинка по запросу: {query_text or 'рандом'}",
+            description="Отправить в чат"
+        )
+        bot.answer_inline_query(inline_query.id, [result], cache_time=1)
+        
 # Flask app
 app = Flask(__name__)
 
