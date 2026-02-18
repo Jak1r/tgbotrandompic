@@ -250,9 +250,9 @@ def create_collage(image_urls, count):
             cols = 4
             rows = (count + 3) // 4
         
-        # УМЕНЬШЕННЫЙ размер каждой ячейки
-        cell_width = 300  # было 400
-        cell_height = 300  # было 400
+        # Размер каждой ячейки
+        cell_width = 300
+        cell_height = 300
         
         # Создаем холст
         collage_width = cols * cell_width
@@ -274,26 +274,33 @@ def create_collage(image_urls, count):
             
             collage.paste(img, (x, y))
         
-        # Создаем превью ДО сохранения в JPEG
+        # Создаем КВАДРАТНОЕ превью с белыми полями
+        thumb_size = 200  # Квадратное превью 200x200
         thumb = collage.copy()
-        thumb.thumbnail((320, 320), Image.Resampling.LANCZOS)  # было 200x200
+        thumb.thumbnail((thumb_size, thumb_size), Image.Resampling.LANCZOS)
         
-        # Сохраняем полное изображение с МЕНЬШИМ качеством
+        # Создаем квадратный холст и центрируем превью
+        square_thumb = Image.new('RGB', (thumb_size, thumb_size), 'white')
+        offset_x = (thumb_size - thumb.width) // 2
+        offset_y = (thumb_size - thumb.height) // 2
+        square_thumb.paste(thumb, (offset_x, offset_y))
+        
+        # Сохраняем полное изображение
         full_output = BytesIO()
-        collage.save(full_output, format='JPEG', quality=75, optimize=True)  # было quality=85
+        collage.save(full_output, format='JPEG', quality=75, optimize=True)
         full_output.seek(0)
         
-        # Сохраняем превью с еще меньшим качеством
+        # Сохраняем квадратное превью
         thumb_output = BytesIO()
-        thumb.save(thumb_output, format='JPEG', quality=60, optimize=True)  # было quality=70
+        square_thumb.save(thumb_output, format='JPEG', quality=60, optimize=True)
         thumb_output.seek(0)
         
         full_size = len(full_output.getvalue())
-        thumb_size = len(thumb_output.getvalue())
+        thumb_size_bytes = len(thumb_output.getvalue())
         
         print(f"✅ Коллаж создан успешно ({collage_width}x{collage_height})")
         print(f"   Размер полного: {full_size} байт ({full_size/1024:.1f} KB)")
-        print(f"   Размер превью: {thumb_size} байт ({thumb_size/1024:.1f} KB)")
+        print(f"   Размер превью: {thumb_size_bytes} байт ({thumb_size_bytes/1024:.1f} KB)")
         
         return full_output, thumb_output
         
@@ -317,22 +324,22 @@ def add_text_to_image(image_url, text):
         if img.mode != 'RGB':
             img = img.convert('RGB')
         
-        # УМЕНЬШЕННЫЙ максимальный размер
-        max_size = 1000  # было 1200
+        # Уменьшаем размер
+        max_size = 1000
         if img.width > max_size or img.height > max_size:
             img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
         
         draw = ImageDraw.Draw(img)
         
         # Размер шрифта
-        font_size = int(img.height * 0.08)  # 8% от высоты картинки
+        font_size = int(img.height * 0.08)
         font = None
         
         # Попытка загрузить шрифт с поддержкой кириллицы
         font_paths = [
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',  # Linux
-            '/System/Library/Fonts/Helvetica.ttc',  # macOS
-            'C:\\Windows\\Fonts\\Arial.ttf',  # Windows
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+            '/System/Library/Fonts/Helvetica.ttc',
+            'C:\\Windows\\Fonts\\Arial.ttf',
         ]
         
         for font_path in font_paths:
@@ -343,13 +350,12 @@ def add_text_to_image(image_url, text):
             except:
                 continue
         
-        # Если не нашли шрифт, используем дефолтный
         if font is None:
             print(f"⚠️ Используем дефолтный шрифт")
             font = ImageFont.load_default()
         
         # Разбиваем длинный текст на строки
-        max_width = img.width - 40  # Отступы по 20px с каждой стороны
+        max_width = img.width - 40
         words = text.split()
         lines = []
         current_line = []
@@ -370,14 +376,13 @@ def add_text_to_image(image_url, text):
             lines.append(' '.join(current_line))
         
         # Рисуем каждую строку
-        y_offset = img.height - 60  # Начинаем с низа
+        y_offset = img.height - 60
         
-        for line in reversed(lines):  # Рисуем снизу вверх
+        for line in reversed(lines):
             bbox = draw.textbbox((0, 0), line, font=font)
             text_width = bbox[2] - bbox[0]
             text_height = bbox[3] - bbox[1]
             
-            # Позиция текста (по центру)
             x = (img.width - text_width) // 2
             y = y_offset - text_height
             
@@ -390,28 +395,35 @@ def add_text_to_image(image_url, text):
             # Рисуем основной текст (белый)
             draw.text((x, y), line, font=font, fill='white')
             
-            y_offset = y - 10  # Отступ между строками
+            y_offset = y - 10
         
-        # Создаем превью ДО сохранения в JPEG
+        # Создаем КВАДРАТНОЕ превью с белыми полями
+        thumb_size = 200  # Квадратное превью 200x200
         thumb = img.copy()
-        thumb.thumbnail((320, 320), Image.Resampling.LANCZOS)  # было 200x200
+        thumb.thumbnail((thumb_size, thumb_size), Image.Resampling.LANCZOS)
         
-        # Сохраняем полное изображение с МЕНЬШИМ качеством
+        # Создаем квадратный холст и центрируем превью
+        square_thumb = Image.new('RGB', (thumb_size, thumb_size), 'white')
+        offset_x = (thumb_size - thumb.width) // 2
+        offset_y = (thumb_size - thumb.height) // 2
+        square_thumb.paste(thumb, (offset_x, offset_y))
+        
+        # Сохраняем полное изображение
         full_output = BytesIO()
-        img.save(full_output, format='JPEG', quality=80, optimize=True)  # было quality=90
+        img.save(full_output, format='JPEG', quality=80, optimize=True)
         full_output.seek(0)
         
-        # Сохраняем превью с меньшим качеством
+        # Сохраняем квадратное превью
         thumb_output = BytesIO()
-        thumb.save(thumb_output, format='JPEG', quality=60, optimize=True)  # было quality=70
+        square_thumb.save(thumb_output, format='JPEG', quality=60, optimize=True)
         thumb_output.seek(0)
         
         full_size = len(full_output.getvalue())
-        thumb_size = len(thumb_output.getvalue())
+        thumb_size_bytes = len(thumb_output.getvalue())
         
         print(f"✅ Текст добавлен успешно")
         print(f"   Размер полного: {full_size} байт ({full_size/1024:.1f} KB)")
-        print(f"   Размер превью: {thumb_size} байт ({thumb_size/1024:.1f} KB)")
+        print(f"   Размер превью: {thumb_size_bytes} байт ({thumb_size_bytes/1024:.1f} KB)")
         
         return full_output, thumb_output
         
