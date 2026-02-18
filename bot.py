@@ -86,7 +86,7 @@ def inline_query_handler(inline_query):
             description="Отправить в чат"
         )
         bot.answer_inline_query(inline_query.id, [result], cache_time=1)
-        
+         
 # Flask app
 app = Flask(__name__)
 
