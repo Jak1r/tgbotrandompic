@@ -53,19 +53,20 @@ def setup_webhook():
 # Функция получения случайной картинки с Unsplash
 def get_random_unsplash_image(custom_query=None):
     query = custom_query or random.choice(RANDOM_QUERIES)
-    url = f'https://api.unsplash.com/photos/random?query={query}&client_id={UNSPLASH_ACCESS_KEY}&orientation=landscape'
+    url = f'https://api.unsplash.com/photos/random?query={query}&client_id={UNSPLASH_ACCESS_KEY}'
     
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
         
-        # Используем разные размеры из Unsplash API
-        image_url = data.get('urls', {}).get('regular')  # Основное изображение
-        thumb_url = data.get('urls', {}).get('thumb')     # Маленькое превью (200x200)
+        # Получаем правильные URL из API
+        urls = data.get('urls', {})
+        image_url = urls.get('regular')  # Полноразмерное изображение
+        thumb_url = urls.get('small')    # Маленькое изображение для превью
         
-        print(f"✅ Unsplash вернул URL: {image_url}")
-        print(f"✅ Thumbnail URL: {thumb_url}")
+        print(f"✅ Image URL: {image_url}")
+        print(f"✅ Thumb URL: {thumb_url}")
         
         return image_url, thumb_url
     except Exception as e:
@@ -124,20 +125,24 @@ def inline_handler(inline_query):
             result_id = f"{int(time.time())}_{random.randint(1000, 9999)}"
             title = "Случайная картинка из Unsplash" if not query_text else f"Картинка: {query_text}"
             
-            results.append(
-                telebot.types.InlineQueryResultPhoto(
-                    id=result_id,
-                    photo_url=image_url,
-                    thumbnail_url=thumb_url,
-                    title=title,
-                    description="Нажми, чтобы отправить"
-                )
+            result = telebot.types.InlineQueryResultPhoto(
+                id=result_id,
+                photo_url=image_url,
+                thumbnail_url=thumb_url,
+                title=title,
+                description="Нажми, чтобы отправить"
             )
+            
+            results.append(result)
             print(f"✅ Создан результат: {result_id}")
+            print(f"   Photo URL: {image_url}")
+            print(f"   Thumb URL: {thumb_url}")
         else:
-            print(f"⚠️ Не удалось получить картинку")
+            print(f"⚠️ Не удалось получить картинку от Unsplash")
     except Exception as e:
         print(f"❌ Ошибка при создании результата: {e}")
+        import traceback
+        print(traceback.format_exc())
 
     # Отвечаем Telegram
     try:
@@ -145,15 +150,17 @@ def inline_handler(inline_query):
             bot.answer_inline_query(
                 inline_query.id, 
                 results, 
-                cache_time=1,  # Минимальный кэш для максимальной случайности
+                cache_time=0,  # Отключаем кэш полностью для тестирования
                 is_personal=True
             )
             print(f"✅ Отправлен результат для inline-запроса '{query_text}'")
         else:
-            bot.answer_inline_query(inline_query.id, [], cache_time=1)
+            bot.answer_inline_query(inline_query.id, [], cache_time=0)
             print(f"⚠️ Отправлен пустой результат - не удалось получить картинку")
     except Exception as e:
         print(f"❌ Ошибка при ответе на inline-запрос: {e}")
+        import traceback
+        print(traceback.format_exc())
 
 # Роуты Flask
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
