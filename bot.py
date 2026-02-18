@@ -10,6 +10,8 @@ from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 import re
 import threading
+import string
+import uuid
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -55,6 +57,12 @@ current_api_index = 0
 
 # Временное хранилище для сгенерированных картинок (с автоочисткой)
 temp_images = {}
+
+def generate_unique_id(prefix="img"):
+    """Генерирует уникальный ID для inline результата"""
+    unique_str = str(uuid.uuid4()).replace('-', '')[:12]
+    timestamp = int(time.time() * 1000)
+    return f"{prefix}_{timestamp}_{unique_str}"
 
 def cleanup_temp_images():
     """Очищает старые картинки из памяти каждые 10 минут"""
@@ -251,8 +259,8 @@ def create_collage(image_urls, count):
             rows = (count + 3) // 4
         
         # Размер каждой ячейки
-        cell_width = 300
-        cell_height = 300
+        cell_width = 400
+        cell_height = 400
         
         # Создаем холст
         collage_width = cols * cell_width
@@ -274,33 +282,23 @@ def create_collage(image_urls, count):
             
             collage.paste(img, (x, y))
         
-        # Создаем КВАДРАТНОЕ превью с белыми полями
-        thumb_size = 200  # Квадратное превью 200x200
+        # Создаем превью ДО сохранения в JPEG
         thumb = collage.copy()
-        thumb.thumbnail((thumb_size, thumb_size), Image.Resampling.LANCZOS)
-        
-        # Создаем квадратный холст и центрируем превью
-        square_thumb = Image.new('RGB', (thumb_size, thumb_size), 'white')
-        offset_x = (thumb_size - thumb.width) // 2
-        offset_y = (thumb_size - thumb.height) // 2
-        square_thumb.paste(thumb, (offset_x, offset_y))
+        thumb.thumbnail((200, 200), Image.Resampling.LANCZOS)
         
         # Сохраняем полное изображение
         full_output = BytesIO()
-        collage.save(full_output, format='JPEG', quality=75, optimize=True)
+        collage.save(full_output, format='JPEG', quality=85, optimize=True)
         full_output.seek(0)
         
-        # Сохраняем квадратное превью
+        # Сохраняем превью
         thumb_output = BytesIO()
-        square_thumb.save(thumb_output, format='JPEG', quality=60, optimize=True)
+        thumb.save(thumb_output, format='JPEG', quality=70, optimize=True)
         thumb_output.seek(0)
         
-        full_size = len(full_output.getvalue())
-        thumb_size_bytes = len(thumb_output.getvalue())
-        
         print(f"✅ Коллаж создан успешно ({collage_width}x{collage_height})")
-        print(f"   Размер полного: {full_size} байт ({full_size/1024:.1f} KB)")
-        print(f"   Размер превью: {thumb_size_bytes} байт ({thumb_size_bytes/1024:.1f} KB)")
+        print(f"   Размер полного: {len(full_output.getvalue())} байт")
+        print(f"   Размер превью: {len(thumb_output.getvalue())} байт")
         
         return full_output, thumb_output
         
@@ -324,22 +322,22 @@ def add_text_to_image(image_url, text):
         if img.mode != 'RGB':
             img = img.convert('RGB')
         
-        # Уменьшаем размер
-        max_size = 1000
+        # Ограничиваем размер
+        max_size = 1200
         if img.width > max_size or img.height > max_size:
             img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
         
         draw = ImageDraw.Draw(img)
         
         # Размер шрифта
-        font_size = int(img.height * 0.08)
+        font_size = int(img.height * 0.08)  # 8% от высоты картинки
         font = None
         
         # Попытка загрузить шрифт с поддержкой кириллицы
         font_paths = [
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-            '/System/Library/Fonts/Helvetica.ttc',
-            'C:\\Windows\\Fonts\\Arial.ttf',
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',  # Linux
+            '/System/Library/Fonts/Helvetica.ttc',  # macOS
+            'C:\\Windows\\Fonts\\Arial.ttf',  # Windows
         ]
         
         for font_path in font_paths:
@@ -350,12 +348,13 @@ def add_text_to_image(image_url, text):
             except:
                 continue
         
+        # Если не нашли шрифт, используем дефолтный
         if font is None:
             print(f"⚠️ Используем дефолтный шрифт")
             font = ImageFont.load_default()
         
         # Разбиваем длинный текст на строки
-        max_width = img.width - 40
+        max_width = img.width - 40  # Отступы по 20px с каждой стороны
         words = text.split()
         lines = []
         current_line = []
@@ -376,13 +375,14 @@ def add_text_to_image(image_url, text):
             lines.append(' '.join(current_line))
         
         # Рисуем каждую строку
-        y_offset = img.height - 60
+        y_offset = img.height - 60  # Начинаем с низа
         
-        for line in reversed(lines):
+        for line in reversed(lines):  # Рисуем снизу вверх
             bbox = draw.textbbox((0, 0), line, font=font)
             text_width = bbox[2] - bbox[0]
             text_height = bbox[3] - bbox[1]
             
+            # Позиция текста (по центру)
             x = (img.width - text_width) // 2
             y = y_offset - text_height
             
@@ -395,35 +395,25 @@ def add_text_to_image(image_url, text):
             # Рисуем основной текст (белый)
             draw.text((x, y), line, font=font, fill='white')
             
-            y_offset = y - 10
+            y_offset = y - 10  # Отступ между строками
         
-        # Создаем КВАДРАТНОЕ превью с белыми полями
-        thumb_size = 200  # Квадратное превью 200x200
+        # Создаем превью ДО сохранения в JPEG
         thumb = img.copy()
-        thumb.thumbnail((thumb_size, thumb_size), Image.Resampling.LANCZOS)
-        
-        # Создаем квадратный холст и центрируем превью
-        square_thumb = Image.new('RGB', (thumb_size, thumb_size), 'white')
-        offset_x = (thumb_size - thumb.width) // 2
-        offset_y = (thumb_size - thumb.height) // 2
-        square_thumb.paste(thumb, (offset_x, offset_y))
+        thumb.thumbnail((200, 200), Image.Resampling.LANCZOS)
         
         # Сохраняем полное изображение
         full_output = BytesIO()
-        img.save(full_output, format='JPEG', quality=80, optimize=True)
+        img.save(full_output, format='JPEG', quality=90, optimize=True)
         full_output.seek(0)
         
-        # Сохраняем квадратное превью
+        # Сохраняем превью
         thumb_output = BytesIO()
-        square_thumb.save(thumb_output, format='JPEG', quality=60, optimize=True)
+        thumb.save(thumb_output, format='JPEG', quality=70, optimize=True)
         thumb_output.seek(0)
         
-        full_size = len(full_output.getvalue())
-        thumb_size_bytes = len(thumb_output.getvalue())
-        
         print(f"✅ Текст добавлен успешно")
-        print(f"   Размер полного: {full_size} байт ({full_size/1024:.1f} KB)")
-        print(f"   Размер превью: {thumb_size_bytes} байт ({thumb_size_bytes/1024:.1f} KB)")
+        print(f"   Размер полного: {len(full_output.getvalue())} байт")
+        print(f"   Размер превью: {len(thumb_output.getvalue())} байт")
         
         return full_output, thumb_output
         
@@ -477,6 +467,7 @@ def handle_callback(call):
 @bot.inline_handler(lambda query: True)
 def inline_handler(inline_query):
     print(f"📥 Получен inline-запрос: '{inline_query.query}' от пользователя {inline_query.from_user.id}")
+    print(f"📊 Картинок в памяти: {len(temp_images)}")
 
     query_text = inline_query.query.strip()
     results = []
@@ -525,8 +516,8 @@ def inline_handler(inline_query):
                 collage_full, collage_thumb = create_collage(image_urls, len(image_urls))
                 
                 if collage_full and collage_thumb:
-                    # Сохраняем коллаж и превью во временное хранилище
-                    image_id = f"collage_{int(time.time() * 1000)}"
+                    # Генерируем уникальные ID
+                    image_id = generate_unique_id("collage")
                     thumb_id = f"thumb_{image_id}"
                     
                     temp_images[image_id] = (collage_full.getvalue(), time.time())
@@ -539,6 +530,7 @@ def inline_handler(inline_query):
                     
                     print(f"✅ Коллаж URL: {collage_url}")
                     print(f"✅ Превью URL: {thumb_collage_url}")
+                    print(f"✅ Уникальный ID: {image_id}")
                     
                     result = telebot.types.InlineQueryResultPhoto(
                         id=image_id,
@@ -558,8 +550,8 @@ def inline_handler(inline_query):
                 text_full, text_thumb = add_text_to_image(image_url, text_to_add)
                 
                 if text_full and text_thumb:
-                    # Сохраняем картинку с текстом и превью во временное хранилище
-                    image_id = f"text_{int(time.time() * 1000)}"
+                    # Генерируем уникальные ID
+                    image_id = generate_unique_id("text")
                     thumb_id = f"thumb_{image_id}"
                     
                     temp_images[image_id] = (text_full.getvalue(), time.time())
@@ -572,6 +564,7 @@ def inline_handler(inline_query):
                     
                     print(f"✅ Текст картинка URL: {text_image_url}")
                     print(f"✅ Превью URL: {thumb_text_url}")
+                    print(f"✅ Уникальный ID: {image_id}")
                     
                     result = telebot.types.InlineQueryResultPhoto(
                         id=image_id,
@@ -588,7 +581,7 @@ def inline_handler(inline_query):
             image_url, thumb_url = get_random_image(search_query)
             
             if image_url and thumb_url:
-                result_id = str(int(time.time() * 1000))
+                result_id = generate_unique_id("img")
                 title = "📸 Случайная картинка" if not search_query else f"📸 {search_query}"
                 
                 result = telebot.types.InlineQueryResultPhoto(
@@ -602,7 +595,7 @@ def inline_handler(inline_query):
                 )
                 
                 results.append(result)
-                print(f"✅ Создан inline результат")
+                print(f"✅ Создан inline результат с ID: {result_id}")
         
     except Exception as e:
         print(f"❌ Ошибка при создании результата: {e}")
@@ -645,15 +638,24 @@ def health():
     return 'OK', 200
 
 # Роут для отдачи сгенерированных картинок
-@app.route('/image/<image_id>', methods=['GET', 'HEAD'])
+@app.route('/image/<image_id>', methods=['GET', 'HEAD', 'OPTIONS'])
 def serve_image(image_id):
     """Отдает сгенерированную картинку по ID"""
     print(f"🔍 {request.method} запрос картинки: {image_id}")
     print(f"🔍 Картинок в памяти: {len(temp_images)}")
     
+    # Обработка OPTIONS запроса для CORS
+    if request.method == 'OPTIONS':
+        response = app.make_response('')
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        response.headers['Access-Control-Max-Age'] = '3600'
+        return response
+    
     if image_id in temp_images:
         image_data, timestamp = temp_images[image_id]
-        print(f"✅ Картинка найдена, размер: {len(image_data)} байт")
+        print(f"✅ Картинка найдена, размер: {len(image_data)} байт, возраст: {time.time() - timestamp:.1f} сек")
         
         # Для HEAD запроса просто возвращаем заголовки
         if request.method == 'HEAD':
@@ -662,22 +664,34 @@ def serve_image(image_id):
             response.headers['Content-Length'] = str(len(image_data))
             response.headers['Access-Control-Allow-Origin'] = '*'
             response.headers['Cache-Control'] = 'public, max-age=3600'
+            response.headers['X-Image-ID'] = image_id
             return response
         
         # Для GET возвращаем саму картинку
+        image_io = BytesIO(image_data)
+        
+        # Проверяем что изображение валидно
+        try:
+            img = Image.open(image_io)
+            print(f"✅ Изображение валидно: {img.format}, {img.size}")
+            image_io.seek(0)
+        except Exception as e:
+            print(f"❌ Ошибка валидации изображения: {e}")
+        
         response = send_file(
-            BytesIO(image_data),
+            image_io,
             mimetype='image/jpeg',
             as_attachment=False,
             download_name=f'{image_id}.jpg'
         )
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Cache-Control'] = 'public, max-age=3600'
+        response.headers['X-Image-ID'] = image_id
         return response
     else:
         print(f"❌ Картинка {image_id} НЕ найдена в памяти")
         print(f"   Доступные ID в памяти: {list(temp_images.keys())[:5]}")
-        abort(404)
+        return "Image not found", 404
 
 if __name__ != '__main__':
     setup_webhook()
