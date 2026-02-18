@@ -5,6 +5,7 @@ import random
 import requests
 from flask import Flask, request, abort
 from dotenv import load_dotenv
+import time
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -24,6 +25,25 @@ RANDOM_QUERIES = [
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
 
+# Авто-установка webhook при запуске
+webhook_path = f'/{TELEGRAM_TOKEN}'
+webhook_url = f'https://{os.environ.get("RENDER_EXTERNAL_HOSTNAME", "tgbotrandompic.onrender.com")}{webhook_path}'
+
+try:
+    current_webhook = bot.get_webhook_info()
+    if current_webhook.url != webhook_url:
+        bot.remove_webhook()
+        time.sleep(1)  # пауза для Telegram
+        success = bot.set_webhook(url=webhook_url)
+        if success:
+            print(f"Webhook успешно установлен на: {webhook_url}")
+        else:
+            print("Не удалось установить webhook")
+    else:
+        print(f"Webhook уже установлен правильно: {webhook_url}")
+except Exception as e:
+    print(f"Ошибка при установке webhook: {e}")
+
 # Функция получения случайной картинки с Unsplash
 def get_random_unsplash_image(custom_query=None):
     query = custom_query or random.choice(RANDOM_QUERIES)
@@ -39,7 +59,6 @@ def get_random_unsplash_image(custom_query=None):
         print(f"Ошибка при запросе к Unsplash: {e}")
         return None
 
-
 # Обычный режим — упоминание бота
 @bot.message_handler(func=lambda message: True)
 def handle_mention(message):
@@ -49,7 +68,6 @@ def handle_mention(message):
         button = InlineKeyboardButton('Отправить случайную картинку', callback_data='send_random_img')
         markup.add(button)
         bot.reply_to(message, 'Что хочешь сделать?', reply_markup=markup)
-
 
 # Обработка нажатия кнопки в обычном режиме
 @bot.callback_query_handler(func=lambda call: True)
@@ -67,7 +85,6 @@ def handle_callback(call):
         else:
             bot.reply_to(call.message, 'Не удалось найти картинку. Попробуй позже!')
 
-
 # Inline-режим — когда набирают @bot в любом чате
 @bot.inline_handler(lambda query: True)
 def inline_handler(inline_query):
@@ -84,7 +101,7 @@ def inline_handler(inline_query):
                     id="random_default",
                     photo_url=image_url,
                     thumb_url=image_url,
-                    title="Случайная красивая картинка",
+                    title="Случайная красивая картинка из Unsplash",
                     description="Нажми, чтобы отправить"
                 )
             )
@@ -109,12 +126,15 @@ def inline_handler(inline_query):
     else:
         bot.answer_inline_query(inline_query.id, [])
 
-
 # Flask-приложение для webhook
 app = Flask(__name__)
 
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
 def webhook():
+    print("Получен POST-запрос от Telegram!")  # Лог для отладки
+    print(request.headers)
+    print(request.get_data(as_text=True))  # Сырой JSON
+
     if request.headers.get('content-type') == 'application/json':
         json_string = request.get_data().decode('utf-8')
         update = telebot.types.Update.de_json(json_string)
@@ -123,13 +143,11 @@ def webhook():
     else:
         abort(403)
 
-
 @app.route('/')
 def index():
     return 'Bot is running', 200
 
-
 #if __name__ == '__main__':
     # Только для локального тестирования
  #   print("Запуск в режиме разработки (локально)")
- #   app.run(host='0.0.0.0', port=5000, debug=True)
+  #  app.run(host='0.0.0.0', port=5000, debug=True)
