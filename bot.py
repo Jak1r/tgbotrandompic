@@ -71,6 +71,6 @@ def webhook():
 def index():
     return 'Telegram bot is alive!', 200
 
-if __name__ == '__main__':
+# if __name__ == '__main__':
     # Для локального теста (закомментируй на Render)
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # app.run(host='0.0.0.0', port=5000, debug=True)
