@@ -11,8 +11,8 @@ from io import BytesIO
 import re
 import threading
 import string
-import uuid
 import json
+import uuid
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -54,11 +54,11 @@ def load_phrases():
     except FileNotFoundError:
         print("⚠️ Файл phrases.json не найден, создаем дефолтный")
         default_phrases = {
-            "papich": ["Хорош, хорош!", "Это база!", "Красавчик!", "Топчик!", "Вайб"],
-            "tehnik": ["Техника - молодёжь!", "Батя", "Здарова, пацаны!", "Погнали!", "Заряжай!"],
-            "stethem": ["Где деньги, Лиза?", "Ты кто по жизни?", "Заберите у него тапки", "Слабоумие и отвага"],
-            "mat": ["#@!$%", "***", "#$%@", "!@#$%^&"],
-            "random": ["Удача", "Красота", "Счастье", "Любовь", "Дружба", "Мечта", "Успех", "Победа", "Радость", "Вдохновение"]
+            "papich": ["Хорош, хорош!", "Это база!", "Красавчик!", "Топчик!", "Вайб", "Хайпово", "Пальчик вверх", "Лучше всех!", "Огонь!", "Зашло!"],
+            "tehnik": ["Техника - молодёжь!", "Батя", "Здарова, пацаны!", "Погнали!", "Заряжай!", "Кто не курит и не пьёт - тот здоровеньким помрёт", "Эх, техника!", "Молодёжка", "Будь здоров!"],
+            "stethem": ["Где деньги, Лиза?", "Ты кто по жизни?", "Заберите у него тапки", "Слабоумие и отвага", "Ты не пройдешь", "Где паспорт?", "Ты меня уважаешь?", "Аниме - говно"],
+            "mat": ["#@!$%", "***", "#$%@", "!@#$%^&", "***!!!", "@#$%", "!@#$"],
+            "random": ["Удача", "Красота", "Счастье", "Любовь", "Дружба", "Мечта", "Успех", "Победа", "Радость", "Вдохновение", "Свобода", "Гармония", "Мудрость", "Сила", "Доброта"]
         }
         with open('phrases.json', 'w', encoding='utf-8') as f:
             json.dump(default_phrases, f, ensure_ascii=False, indent=2)
@@ -76,20 +76,76 @@ RANDOM_QUERIES = [
     'forest', 'sunset', 'flowers', 'architecture', 'beach', 'winter'
 ]
 
+# Кэш для русских слов
+words_cache = []
+
+def fetch_russian_words():
+    """Загружает русские слова из интернета"""
+    global words_cache
+    
+    if words_cache:
+        return words_cache
+    
+    try:
+        print("🌐 Загружаем русские слова из интернета...")
+        
+        # Используем GitHub с русскими словами
+        sources = [
+            "https://raw.githubusercontent.com/danakt/russian-words/master/russian.txt",
+            "https://raw.githubusercontent.com/Koziev/ruwordnet/master/data/words.txt"
+        ]
+        
+        all_words = []
+        for source in sources:
+            try:
+                response = requests.get(source, timeout=10)
+                if response.status_code == 200:
+                    words = response.text.splitlines()
+                    russian_words = [w.lower() for w in words 
+                                   if w and len(w) >= 3 and len(w) <= 15 
+                                   and all('а' <= c <= 'я' or c == 'ё' for c in w.lower())]
+                    all_words.extend(russian_words)
+                    print(f"✅ Загружено {len(russian_words)} слов из {source}")
+            except Exception as e:
+                print(f"⚠️ Ошибка загрузки из {source}: {e}")
+        
+        if all_words:
+            words_cache = list(set(all_words))
+            print(f"✅ Всего загружено {len(words_cache)} русских слов")
+            return words_cache
+        else:
+            # Запасной список
+            words_cache = [
+                'мир', 'дом', 'лес', 'река', 'гора', 'море', 'солнце', 'небо', 'трава', 'цветок',
+                'кот', 'собака', 'птица', 'рыба', 'дерево', 'ветер', 'дождь', 'снег', 'огонь', 'вода',
+                'книга', 'стол', 'стул', 'окно', 'дверь', 'комната', 'город', 'улица', 'дорога', 'машина',
+                'человек', 'друг', 'семья', 'мама', 'папа', 'брат', 'сестра', 'ребенок', 'имя', 'слово',
+                'время', 'день', 'ночь', 'утро', 'вечер', 'год', 'месяц', 'неделя', 'час', 'минута'
+            ]
+            return words_cache
+            
+    except Exception as e:
+        print(f"❌ Ошибка загрузки слов: {e}")
+        return ['случайные', 'русские', 'слова']
+
+# Инициализируем слова при запуске
+fetch_russian_words()
+
 bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
 app = Flask(__name__)
 
 # Счетчик для ротации API
 current_api_index = 0
 
-# Временное хранилище для сгенерированных картинок (с автоочисткой)
+# Временное хранилище для сгенерированных картинок
 temp_images = {}
 
 def generate_unique_id(prefix="img"):
     """Генерирует уникальный ID для inline результата"""
     timestamp = int(time.time() * 1000)
     random_part = random.randint(10000, 99999)
-    return f"{prefix}_{timestamp}_{random_part}"
+    unique_str = str(uuid.uuid4()).replace('-', '')[:8]
+    return f"{prefix}_{timestamp}_{random_part}_{unique_str}"
 
 def get_random_phrase(category="random"):
     """Возвращает случайную фразу из указанной категории"""
@@ -97,17 +153,16 @@ def get_random_phrase(category="random"):
         return random.choice(PHRASES[category])
     return "Случайная фраза"
 
-def generate_random_words(count=3):
-    """Генерирует случайные слова (для команды randtext)"""
-    words = []
-    all_phrases = []
-    for cat in PHRASES.values():
-        all_phrases.extend(cat)
+def get_random_russian_words(count=3):
+    """Возвращает случайные русские слова"""
+    global words_cache
+    if not words_cache:
+        words_cache = fetch_russian_words()
     
-    for _ in range(min(count, len(all_phrases))):
-        if all_phrases:
-            words.append(random.choice(all_phrases))
-    return ' '.join(words[:count])
+    if words_cache and len(words_cache) >= count:
+        selected = random.sample(words_cache, count)
+        return ' '.join(selected)
+    return "случайные слова"
 
 def cleanup_temp_images():
     """Очищает старые картинки из памяти каждые 10 минут"""
@@ -150,7 +205,7 @@ def setup_webhook():
     except Exception as e:
         print(f"❌ Ошибка при установке webhook: {e}")
 
-# Функции для работы с API (БЕЗ ИЗМЕНЕНИЙ)
+# Функции для работы с API
 def get_unsplash_image(query):
     url = f'https://api.unsplash.com/photos/random?query={query}&client_id={UNSPLASH_ACCESS_KEY}'
     
@@ -268,7 +323,7 @@ def get_random_image(custom_query=None):
     print(f"❌ Все API не вернули результат для '{query}'")
     return None, None
 
-# ФУНКЦИЯ: Создание коллажа (БЕЗ ИЗМЕНЕНИЙ)
+# ФУНКЦИЯ: Создание коллажа
 def create_collage(image_urls, count):
     """Создает коллаж из нескольких картинок"""
     try:
@@ -337,7 +392,7 @@ def create_collage(image_urls, count):
         print(traceback.format_exc())
         return None, None
 
-# ФУНКЦИЯ: Добавление текста на картинку (БЕЗ ИЗМЕНЕНИЙ)
+# ФУНКЦИЯ: Добавление текста на картинку
 def add_text_to_image(image_url, text):
     """Добавляет текст внизу картинки как в мемах"""
     try:
@@ -434,6 +489,157 @@ def add_text_to_image(image_url, text):
         print(traceback.format_exc())
         return None, None
 
+# ФУНКЦИЯ: Создание коллажа с текстом (ОДИН ТЕКСТ НА ВЕСЬ КОЛЛАЖ)
+def create_collage_with_text(image_urls, count, text):
+    """Создает коллаж из картинок и добавляет текст сверху"""
+    try:
+        print(f"🎨 Создаем коллаж из {count} картинок с текстом: '{text}'")
+        
+        # Сначала создаем обычный коллаж
+        images = []
+        for url in image_urls[:count]:
+            try:
+                response = requests.get(url, timeout=10)
+                img = Image.open(BytesIO(response.content))
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+                images.append(img)
+            except Exception as e:
+                print(f"❌ Ошибка загрузки картинки: {e}")
+                continue
+        
+        if not images:
+            return None, None
+        
+        # Определяем размеры коллажа
+        if count <= 4:
+            cols = 2
+            rows = (count + 1) // 2
+        elif count <= 9:
+            cols = 3
+            rows = (count + 2) // 3
+        else:
+            cols = 4
+            rows = (count + 3) // 4
+        
+        cell_width = 400
+        cell_height = 400
+        
+        collage_width = cols * cell_width
+        collage_height = rows * cell_height
+        collage = Image.new('RGB', (collage_width, collage_height), 'white')
+        
+        # Размещаем картинки
+        for idx, img in enumerate(images):
+            img.thumbnail((cell_width, cell_height), Image.Resampling.LANCZOS)
+            
+            col = idx % cols
+            row = idx // cols
+            
+            x = col * cell_width + (cell_width - img.width) // 2
+            y = row * cell_height + (cell_height - img.height) // 2
+            
+            collage.paste(img, (x, y))
+        
+        # ТЕПЕРЬ ДОБАВЛЯЕМ ТЕКСТ НА КОЛЛАЖ
+        draw = ImageDraw.Draw(collage)
+        
+        # Размер шрифта (относительно размера коллажа)
+        font_size = int(collage.height * 0.1)  # 10% от высоты коллажа
+        font = None
+        
+        font_paths = [
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+            '/System/Library/Fonts/Helvetica.ttc',
+            'C:\\Windows\\Fonts\\Arial.ttf',
+        ]
+        
+        for font_path in font_paths:
+            try:
+                font = ImageFont.truetype(font_path, font_size)
+                print(f"✅ Используем шрифт: {font_path}")
+                break
+            except:
+                continue
+        
+        if font is None:
+            print(f"⚠️ Используем дефолтный шрифт")
+            font = ImageFont.load_default()
+        
+        # Разбиваем текст на строки, чтобы поместился на коллаже
+        max_width = collage.width - 80  # Отступы по краям
+        words = text.split()
+        lines = []
+        current_line = []
+        
+        for word in words:
+            test_line = ' '.join(current_line + [word])
+            bbox = draw.textbbox((0, 0), test_line, font=font)
+            text_width = bbox[2] - bbox[0]
+            
+            if text_width <= max_width:
+                current_line.append(word)
+            else:
+                if current_line:
+                    lines.append(' '.join(current_line))
+                current_line = [word]
+        
+        if current_line:
+            lines.append(' '.join(current_line))
+        
+        # Рисуем текст в НИЖНЕЙ части коллажа
+        total_text_height = 0
+        line_heights = []
+        
+        for line in lines:
+            bbox = draw.textbbox((0, 0), line, font=font)
+            line_height = bbox[3] - bbox[1]
+            line_heights.append(line_height)
+            total_text_height += line_height + 10  # + отступ между строками
+        
+        # Позиция для текста (снизу, с отступом)
+        y_offset = collage.height - total_text_height - 40
+        
+        for i, line in enumerate(lines):
+            bbox = draw.textbbox((0, 0), line, font=font)
+            text_width = bbox[2] - bbox[0]
+            
+            x = (collage.width - text_width) // 2
+            y = y_offset
+            
+            # Рисуем обводку (черную)
+            outline_range = max(3, font_size // 20)
+            for adj_x in range(-outline_range, outline_range + 1):
+                for adj_y in range(-outline_range, outline_range + 1):
+                    draw.text((x + adj_x, y + adj_y), line, font=font, fill='black')
+            
+            # Рисуем основной текст (белый)
+            draw.text((x, y), line, font=font, fill='white')
+            
+            y_offset += line_heights[i] + 10
+        
+        # Создаем превью
+        thumb = collage.copy()
+        thumb.thumbnail((200, 200), Image.Resampling.LANCZOS)
+        
+        # Сохраняем
+        full_output = BytesIO()
+        collage.save(full_output, format='JPEG', quality=85, optimize=True)
+        full_output.seek(0)
+        
+        thumb_output = BytesIO()
+        thumb.save(thumb_output, format='JPEG', quality=70, optimize=True)
+        thumb_output.seek(0)
+        
+        print(f"✅ Коллаж с текстом создан успешно ({collage_width}x{collage_height})")
+        return full_output, thumb_output
+        
+    except Exception as e:
+        print(f"❌ Ошибка создания коллажа с текстом: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return None, None
+
 @bot.message_handler(commands=['start', 'help'])
 def start_command(message):
     available_commands = list(PHRASES.keys())
@@ -443,20 +649,24 @@ def start_command(message):
         '🎨 *Привет! Я бот для работы с картинками.*\n\n'
         '📸 *Основные режимы:*\n'
         '• Просто введи мое имя — одна случайная картинка\n'
-        '• `@bot cats` — картинка с котами\n'
-        '• `@bot 5` — коллаж из 5 картинок (2-10)\n'
-        '• `@bot 7 nature` — коллаж из 7 картинок природы\n\n'
+        '• `@bot cats` — картинка с котами\n\n'
+        '🎨 *Коллажи:*\n'
+        '• `@bot 5` — коллаж из 5 случайных картинок\n'
+        '• `@bot 5 cats` — коллаж из 5 картинок с котами\n'
+        '• `@bot 5 papich cats` — коллаж из 5 котов с фразой из "papich" сверху\n\n'
         '📝 *Текст на картинках:*\n'
         '• `@bot text "Hello"` — картинка с текстом "Hello"\n'
-        '• `@bot text "Привет мир"` — поддержка русского!\n'
-        '• `@bot text "Котики" cats` — картинка с котами и текстом\n\n'
+        '• `@bot text "Привет" cats` — картинка с котами и текстом\n'
+        '• `@bot 5 text "Привет" cats` — коллаж из 5 котов с текстом "Привет" сверху\n\n'
         '🎭 *Фразы по категориям:*\n'
         f'{commands_text}\n\n'
-        '🎲 *Случайный текст:*\n'
-        '• `@bot randtext` — картинка со случайным текстом\n'
-        '• `@bot randtext 5` — картинка с 5 случайными словами\n\n'
+        '🎲 *Случайные слова:*\n'
+        '• `@bot randtext` — картинка со случайным русским словом\n'
+        '• `@bot randtext 3` — картинка с 3 случайными словами\n'
+        '• `@bot randtext 5 cats` — 5 случайных слов на фоне котов\n\n'
         f'🔑 API: {", ".join(available_apis)}\n'
-        f'💾 Фраз в базе: {sum(len(v) for v in PHRASES.values())}'
+        f'💾 Фраз в базе: {sum(len(v) for v in PHRASES.values())}\n'
+        f'📚 Русских слов: {len(words_cache)}'
     )
     bot.reply_to(message, help_text, parse_mode='Markdown')
 
@@ -500,53 +710,89 @@ def inline_handler(inline_query):
         randtext_count = 3
         phrase_category = None
         
+        # Разбиваем запрос на части
+        parts = query_text.split()
+        
         # Проверяем на команду "randtext"
-        if query_text.startswith('randtext'):
+        if parts and parts[0] == 'randtext':
             is_randtext = True
-            parts = query_text.split()
             if len(parts) > 1 and parts[1].isdigit():
                 randtext_count = min(int(parts[1]), 10)
-            print(f"🎲 Запрошен случайный текст из {randtext_count} слов")
+                # Остаток после цифры - поисковый запрос
+                if len(parts) > 2:
+                    search_query = ' '.join(parts[2:])
+            elif len(parts) > 1:
+                # Если второй элемент не цифра, это поисковый запрос
+                search_query = ' '.join(parts[1:])
+            print(f"🎲 Randtext: {randtext_count} слов, поиск: {search_query}")
         
         # Проверяем на команду "text"
-        elif query_text.startswith('text'):
+        elif parts and parts[0] == 'text':
             text_match = re.search(r'text\s+"([^"]+)"', query_text, re.IGNORECASE)
             if text_match:
                 text_to_add = text_match.group(1)
                 # Убираем часть с текстом из запроса
-                query_text = re.sub(r'text\s+"[^"]+"', '', query_text, flags=re.IGNORECASE).strip()
-                print(f"📝 Найден текст для добавления: '{text_to_add}'")
-        
-        # Проверяем на цифру (коллаж)
-        elif query_text and query_text[0].isdigit():
-            parts = query_text.split(maxsplit=1)
-            if parts[0].isdigit():
-                collage_count = int(parts[0])
-                if collage_count < 2:
-                    collage_count = 2
-                elif collage_count > 10:
-                    collage_count = 10
+                remaining = re.sub(r'text\s+"[^"]+"', '', query_text, flags=re.IGNORECASE).strip()
+                remaining_parts = remaining.split()
                 
-                search_query = parts[1] if len(parts) > 1 else None
-                print(f"🎨 Запрошен коллаж из {collage_count} картинок")
-            else:
-                search_query = query_text
+                # Проверяем, есть ли цифра в начале (для коллажа)
+                if remaining_parts and remaining_parts[0].isdigit():
+                    collage_count = int(remaining_parts[0])
+                    if collage_count < 2:
+                        collage_count = 2
+                    elif collage_count > 10:
+                        collage_count = 10
+                    
+                    # Остаток после цифры - поисковый запрос
+                    if len(remaining_parts) > 1:
+                        search_query = ' '.join(remaining_parts[1:])
+                else:
+                    # Обычный текст без коллажа
+                    search_query = remaining if remaining else None
+                
+                print(f"📝 Текст: '{text_to_add}', коллаж: {collage_count}, поиск: {search_query}")
         
-        # Проверяем на команды из JSON (ВКЛЮЧАЯ random!)
-        elif query_text in PHRASES:
-            phrase_category = query_text
+        # Проверяем на цифру в начале (коллаж)
+        elif parts and parts[0].isdigit():
+            collage_count = int(parts[0])
+            if collage_count < 2:
+                collage_count = 2
+            elif collage_count > 10:
+                collage_count = 10
+            
+            # Проверяем остаток запроса
+            if len(parts) > 1:
+                # Может быть категория фраз или поисковый запрос
+                if parts[1] in PHRASES:
+                    phrase_category = parts[1]
+                    text_to_add = get_random_phrase(phrase_category)
+                    # Остаток после категории - поисковый запрос
+                    if len(parts) > 2:
+                        search_query = ' '.join(parts[2:])
+                    print(f"🎨 Коллаж {collage_count} с фразой из '{phrase_category}': '{text_to_add}', поиск: {search_query}")
+                else:
+                    # Обычный поиск
+                    search_query = ' '.join(parts[1:])
+                    print(f"🎨 Коллаж {collage_count}, поиск: {search_query}")
+            else:
+                print(f"🎨 Коллаж {collage_count} без поиска")
+        
+        # Проверяем на команды из JSON
+        elif parts and parts[0] in PHRASES:
+            phrase_category = parts[0]
             text_to_add = get_random_phrase(phrase_category)
-            search_query = None
-            print(f"🎭 Категория '{phrase_category}': '{text_to_add}'")
+            if len(parts) > 1:
+                search_query = ' '.join(parts[1:])
+            print(f"🎭 Категория '{phrase_category}': '{text_to_add}', поиск: {search_query}")
         
         # Если ничего не подошло - обычный поиск
         elif query_text:
             search_query = query_text
-            print(f"🔍 Поиск картинок по запросу: '{search_query}'")
+            print(f"🔍 Поиск: '{search_query}'")
         
         # РЕЖИМ 0: Случайный текст (randtext)
         if is_randtext:
-            text_to_add = generate_random_words(randtext_count)
+            text_to_add = get_random_russian_words(randtext_count)
             image_url, _ = get_random_image(search_query)
             
             if image_url:
@@ -563,9 +809,6 @@ def inline_handler(inline_query):
                     text_image_url = f"https://{hostname}/image/{image_id}"
                     thumb_text_url = f"https://{hostname}/image/{thumb_id}"
                     
-                    print(f"✅ Randtext URL: {text_image_url}")
-                    print(f"✅ Randtext thumb URL: {thumb_text_url}")
-                    
                     result = telebot.types.InlineQueryResultPhoto(
                         id=image_id,
                         photo_url=text_image_url,
@@ -574,12 +817,51 @@ def inline_handler(inline_query):
                         description=f"{text_to_add}"
                     )
                     results.append(result)
-                    print(f"✅ Randtext добавлен в результаты")
         
-        # РЕЖИМ 1: Коллаж
+        # РЕЖИМ 1: Коллаж с текстом (ОДИН ТЕКСТ НА ВЕСЬ КОЛЛАЖ)
+        elif collage_count and text_to_add:
+            # Собираем картинки
+            image_urls = []
+            for i in range(collage_count):
+                img_url, _ = get_random_image(search_query)
+                if img_url:
+                    image_urls.append(img_url)
+                time.sleep(0.1)
+            
+            if len(image_urls) >= 2:
+                # Создаем коллаж и добавляем текст сверху
+                collage_full, collage_thumb = create_collage_with_text(image_urls, len(image_urls), text_to_add)
+                
+                if collage_full and collage_thumb:
+                    image_id = generate_unique_id("collage_text")
+                    thumb_id = f"thumb_{image_id}"
+                    
+                    temp_images[image_id] = (collage_full.getvalue(), time.time())
+                    temp_images[thumb_id] = (collage_thumb.getvalue(), time.time())
+                    
+                    hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "tgbotrandompic.onrender.com")
+                    collage_url = f"https://{hostname}/image/{image_id}"
+                    thumb_collage_url = f"https://{hostname}/image/{thumb_id}"
+                    
+                    # Определяем заголовок
+                    if phrase_category:
+                        title = f"🎨 Коллаж {phrase_category}"
+                    else:
+                        short_text = text_to_add[:30] + ('...' if len(text_to_add) > 30 else '')
+                        title = f"🎨 Коллаж: {short_text}"
+                    
+                    result = telebot.types.InlineQueryResultPhoto(
+                        id=image_id,
+                        photo_url=collage_url,
+                        thumbnail_url=thumb_collage_url,
+                        title=title,
+                        description=f"{text_to_add} | {search_query if search_query else 'Случайные картинки'}"
+                    )
+                    results.append(result)
+        
+        # РЕЖИМ 2: Обычный коллаж (без текста)
         elif collage_count:
             image_urls = []
-            
             for i in range(collage_count):
                 img_url, _ = get_random_image(search_query)
                 if img_url:
@@ -600,9 +882,6 @@ def inline_handler(inline_query):
                     collage_url = f"https://{hostname}/image/{image_id}"
                     thumb_collage_url = f"https://{hostname}/image/{thumb_id}"
                     
-                    print(f"✅ Коллаж URL: {collage_url}")
-                    print(f"✅ Превью URL: {thumb_collage_url}")
-                    
                     result = telebot.types.InlineQueryResultPhoto(
                         id=image_id,
                         photo_url=collage_url,
@@ -611,9 +890,8 @@ def inline_handler(inline_query):
                         description=f"{'Тема: ' + search_query if search_query else 'Случайные картинки'}"
                     )
                     results.append(result)
-                    print(f"✅ Коллаж добавлен в результаты")
         
-        # РЕЖИМ 2: Текст на картинке (включая все категории из JSON)
+        # РЕЖИМ 3: Одиночная картинка с текстом
         elif text_to_add:
             image_url, _ = get_random_image(search_query)
             
@@ -631,23 +909,13 @@ def inline_handler(inline_query):
                     text_image_url = f"https://{hostname}/image/{image_id}"
                     thumb_text_url = f"https://{hostname}/image/{thumb_id}"
                     
-                    print(f"✅ Текст картинка URL: {text_image_url}")
-                    print(f"✅ Превью URL: {thumb_text_url}")
-                    
-                    # Определяем эмодзи для категории
-                    emoji = "📝"
-                    if phrase_category == 'papich':
-                        emoji = "👑"
-                    elif phrase_category == 'tehnik':
-                        emoji = "🔧"
-                    elif phrase_category == 'stethem':
-                        emoji = "💪"
-                    elif phrase_category == 'mat':
-                        emoji = "🤬"
-                    elif phrase_category == 'random':
-                        emoji = "🎲"
-                    
-                    title = f"{emoji} {phrase_category.capitalize()}" if phrase_category else f"📝 {text_to_add[:30]}"
+                    # Определяем заголовок
+                    if phrase_category:
+                        emoji = "👑" if phrase_category == 'papich' else "🔧" if phrase_category == 'tehnik' else "💪" if phrase_category == 'stethem' else "🤬" if phrase_category == 'mat' else "🎲" if phrase_category == 'random' else "📝"
+                        title = f"{emoji} {phrase_category.capitalize()}"
+                    else:
+                        short_text = text_to_add[:30] + ('...' if len(text_to_add) > 30 else '')
+                        title = f"📝 {short_text}"
                     
                     result = telebot.types.InlineQueryResultPhoto(
                         id=image_id,
@@ -657,9 +925,8 @@ def inline_handler(inline_query):
                         description=text_to_add
                     )
                     results.append(result)
-                    print(f"✅ Картинка с текстом добавлена в результаты")
         
-        # РЕЖИМ 3: Обычная картинка (поиск)
+        # РЕЖИМ 4: Обычная картинка (поиск)
         elif search_query:
             image_url, thumb_url = get_random_image(search_query)
             
@@ -677,9 +944,8 @@ def inline_handler(inline_query):
                     description="Нажми, чтобы отправить"
                 )
                 results.append(result)
-                print(f"✅ Создан результат для поиска: {search_query}")
         
-        # РЕЖИМ 4: Пустой запрос - случайная картинка
+        # РЕЖИМ 5: Пустой запрос - случайная картинка
         else:
             image_url, thumb_url = get_random_image()
             
@@ -695,7 +961,6 @@ def inline_handler(inline_query):
                     description="Нажми, чтобы отправить"
                 )
                 results.append(result)
-                print(f"✅ Создан inline результат для пустого запроса")
         
     except Exception as e:
         print(f"❌ Ошибка при создании результата: {e}")
@@ -707,31 +972,14 @@ def inline_handler(inline_query):
             bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
             print(f"✅ Отправлено {len(results)} результатов в Telegram")
         else:
-            # Если нет результатов, отправляем случайную картинку
-            print(f"⚠️ Нет результатов, отправляем случайную картинку")
-            image_url, thumb_url = get_random_image()
-            if image_url and thumb_url:
-                result_id = generate_unique_id("fallback")
-                result = telebot.types.InlineQueryResultPhoto(
-                    id=result_id,
-                    photo_url=image_url,
-                    thumbnail_url=thumb_url,
-                    photo_width=1080,
-                    photo_height=720,
-                    title="📸 Случайная картинка",
-                    description="Нажми, чтобы отправить"
-                )
-                bot.answer_inline_query(inline_query.id, [result], cache_time=0, is_personal=True)
-                print(f"✅ Отправлена случайная картинка как fallback")
-            else:
-                bot.answer_inline_query(inline_query.id, [], cache_time=0)
-                print(f"⚠️ Отправлен пустой ответ в Telegram")
+            print(f"⚠️ Нет результатов")
+            bot.answer_inline_query(inline_query.id, [], cache_time=0)
     except Exception as e:
         print(f"❌ Ошибка при ответе Telegram: {e}")
         import traceback
         print(traceback.format_exc())
 
-# Flask роуты (БЕЗ ИЗМЕНЕНИЙ)
+# Flask роуты
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
@@ -748,7 +996,7 @@ def webhook():
 
 @app.route('/')
 def index():
-    return f'🤖 Bot is running! APIs: {", ".join(available_apis)} | Images in memory: {len(temp_images)} | Phrases: {sum(len(v) for v in PHRASES.values())}', 200
+    return f'🤖 Bot is running! APIs: {", ".join(available_apis)} | Images in memory: {len(temp_images)} | Phrases: {sum(len(v) for v in PHRASES.values())} | Russian words: {len(words_cache)}', 200
 
 @app.route('/health')
 def health():
@@ -758,11 +1006,9 @@ def health():
 def serve_image(image_id):
     """Отдает сгенерированную картинку по ID"""
     print(f"🔍 {request.method} запрос картинки: {image_id}")
-    print(f"🔍 Картинок в памяти: {len(temp_images)}")
     
     if image_id in temp_images:
         image_data, timestamp = temp_images[image_id]
-        print(f"✅ Картинка найдена, размер: {len(image_data)} байт")
         
         if request.method == 'HEAD':
             response = app.make_response('')
@@ -783,7 +1029,6 @@ def serve_image(image_id):
         return response
     else:
         print(f"❌ Картинка {image_id} НЕ найдена в памяти")
-        print(f"   Доступные ID в памяти: {list(temp_images.keys())[:5]}")
         abort(404)
 
 if __name__ != '__main__':
