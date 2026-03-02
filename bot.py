@@ -237,25 +237,22 @@ def add_text_to_image(image_url, text):
             img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
         
         draw = ImageDraw.Draw(img)
-        font_size = int(img.height * 0.08)  # как в вашем старом коде
+        
+        # УВЕЛИЧИВАЕМ ШРИФТ (было 0.08, стало 0.12 - как в оригинале)
+        font_size = int(img.height * 0.12)
         font = None
         
-        # Приоритет: Impact (мемный), потом DejaVu (запасной)
         font_paths = [
-            '/app/fonts/Impact.ttf',           # наш Impact
-            '/app/fonts/impact.ttf',           # если маленькими буквами
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',  # запасной
+            '/app/fonts/Impact.ttf',
+            '/app/fonts/impact.ttf',
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
         ]
         
         for path in font_paths:
             try:
                 font = ImageFont.truetype(path, font_size, encoding='utf-8')
                 print(f"✅ Шрифт загружен: {path}")
-                
-                # Проверяем поддержку кириллицы
-                test_bbox = draw.textbbox((0, 0), "Тест", font=font)
-                if test_bbox[2] - test_bbox[0] > 0:
-                    break
+                break
             except Exception as e:
                 print(f"Не удалось загрузить {path}: {e}")
                 continue
@@ -264,7 +261,7 @@ def add_text_to_image(image_url, text):
             font = ImageFont.load_default()
             print("⚠️ Используем дефолтный шрифт")
         
-        # Остальной код без изменений...
+        # Разбиваем текст на строки
         max_width = img.width - 40
         words = text.split()
         lines = []
@@ -276,13 +273,18 @@ def add_text_to_image(image_url, text):
             if bbox[2] - bbox[0] <= max_width:
                 current_line.append(word)
             else:
-                lines.append(' '.join(current_line))
+                if current_line:
+                    lines.append(' '.join(current_line))
                 current_line = [word]
         
         if current_line:
             lines.append(' '.join(current_line))
         
+        # Рисуем текст снизу вверх
         y_offset = img.height - 60
+        
+        # УВЕЛИЧИВАЕМ ОБВОДКУ с 3 до 5 пикселей
+        outline_range = 5
         
         for line in reversed(lines):
             bbox = draw.textbbox((0, 0), line, font=font)
@@ -291,13 +293,15 @@ def add_text_to_image(image_url, text):
             x = (img.width - tw) // 2
             y = y_offset - th
             
-            outline_range = 3
+            # Рисуем толстую черную обводку
             for dx in range(-outline_range, outline_range + 1):
                 for dy in range(-outline_range, outline_range + 1):
-                    draw.text((x + dx, y + dy), line, font=font, fill='black')
+                    if dx != 0 or dy != 0:  # пропускаем центр
+                        draw.text((x + dx, y + dy), line, font=font, fill='black')
             
+            # Рисуем белый текст поверх
             draw.text((x, y), line, font=font, fill='white')
-            y_offset = y - 10
+            y_offset = y - 15  # увеличил отступ между строками
         
         full_output = BytesIO()
         img.save(full_output, format='JPEG', quality=90, optimize=True)
