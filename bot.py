@@ -70,6 +70,63 @@ RANDOM_QUERIES = [
     'forest', 'sunset', 'flowers', 'architecture', 'beach', 'winter'
 ]
 
+# ========== НОВАЯ ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ ФРАЗ ==========
+def get_russian_phrase():
+    """Получает случайную русскую фразу из Fucking Great Advice API"""
+    try:
+        print("Запрашиваем фразу из Fucking Great Advice...")
+        
+        # Пробуем получить фразу из API
+        response = requests.get(
+            'https://fucking-great-advice.ru/api/random',
+            timeout=5,
+            headers={'User-Agent': 'Mozilla/5.0'}
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            phrase = data.get('text', '').strip()
+            
+            # Проверяем, что фраза не пустая и на русском
+            if phrase and len(phrase) > 5:
+                print(f"✅ Получена фраза: {phrase[:50]}...")
+                return phrase
+            
+    except Exception as e:
+        print(f"⚠️ Ошибка получения фразы из API: {e}")
+    
+    # Если API не сработало, используем запасные фразы
+    print("⚠️ Используем запасные фразы")
+    return get_backup_phrase()
+
+def get_backup_phrase():
+    """Запасные фразы на случай недоступности API"""
+    backup_phrases = [
+        "Всё будет хорошо!",
+        "Жизнь прекрасна!",
+        "Улыбнись новому дню!",
+        "Верь в лучшее!",
+        "Ты справишься!",
+        "Никогда не сдавайся!",
+        "Дорогу осилит идущий!",
+        "Сегодня твой день!",
+        "У тебя всё получится!",
+        "Мечты сбываются!",
+        "Живи ярко!",
+        "Будь счастлив!",
+        "Цени момент!",
+        "Всё в твоих руках!",
+        "Действуй!",
+        "Не останавливайся!",
+        "Вперёд к мечте!",
+        "Ты уникален!",
+        "Продолжай двигаться!",
+        "Выше только небо!"
+    ]
+    return random.choice(backup_phrases)
+
+# ========== КОНЕЦ НОВОЙ ФУНКЦИИ ==========
+
 words_cache = []
 
 def fetch_russian_words():
@@ -109,14 +166,6 @@ def get_random_phrase(category="random"):
     if category in PHRASES and PHRASES[category]:
         return random.choice(PHRASES[category])
     return "Случайная фраза"
-
-def get_random_russian_words(count=3):
-    global words_cache
-    if not words_cache:
-        words_cache = fetch_russian_words()
-    if words_cache and len(words_cache) >= count:
-        return ' '.join(random.sample(words_cache, count))
-    return "случайные слова"
 
 def cleanup_temp_images():
     while True:
@@ -241,8 +290,8 @@ def add_text_to_image(image_url, text):
         font = None
         
         font_paths = [
-           '/app/fonts/Impact.ttf',                          # наш мемный Impact
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',  # запасной
+           '/app/fonts/Impact.ttf',
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
         ]
         for font_path in font_paths:
             try:
@@ -318,9 +367,10 @@ def start_command(message):
         '• `@твойбот text "Привет" cats` — текст + тема\n\n'
         '🎭 Фразы:\n'
         f'{commands_text}\n\n'
-        '🎲 Случайные слова:\n'
-        '• `@твойбот randtext` — картинка + 3 случайных русских слова\n'
-        '• `@твойбот randtext 5` — 5 слов\n'
+        '🎲 Случайные фразы:\n'
+        '• `@твойбот randtext` — картинка + осмысленная фраза из Fucking Great Advice\n'
+        '• `@твойбот randtext 3` — 3 фразы на одной картинке\n'
+        '• `@твойбот randtext природа` — фраза + картинка по теме\n'
         f'API: {", ".join(available_apis)}'
     )
     bot.reply_to(message, help_text, parse_mode='Markdown')
@@ -360,19 +410,40 @@ def inline_handler(inline_query):
         text_to_add = None
         search_query = query_text
         is_randtext = False
-        randtext_count = 3
         phrase_category = None
 
         parts = query_text.split()
 
+        # ========== ОБНОВЛЕННЫЙ БЛОК RANDTEXT ==========
         if parts and parts[0] == 'randtext':
             is_randtext = True
-            if len(parts) > 1 and parts[1].isdigit():
-                randtext_count = min(int(parts[1]), 10)
-                search_query = ' '.join(parts[2:]) if len(parts) > 2 else None
+            text_to_add = None
+            phrase_count = 1  # по умолчанию одна фраза
+            
+            # Проверяем аргументы
+            if len(parts) > 1:
+                if parts[1].isdigit():
+                    # randtext 3 - несколько фраз
+                    phrase_count = min(int(parts[1]), 3)  # максимум 3 фразы
+                    search_query = ' '.join(parts[2:]) if len(parts) > 2 else None
+                else:
+                    # randtext природа - одна фраза + тема
+                    search_query = ' '.join(parts[1:])
+            
+            # Получаем нужное количество фраз
+            if phrase_count > 1:
+                phrases = []
+                for i in range(phrase_count):
+                    print(f"Получаем фразу {i+1} из {phrase_count}...")
+                    phrase = get_russian_phrase()
+                    phrases.append(phrase)
+                    if i < phrase_count - 1:  # не ждем после последней
+                        time.sleep(0.5)  # небольшая задержка между запросами
+                text_to_add = ' | '.join(phrases)  # разделяем фразы символом |
             else:
-                search_query = ' '.join(parts[1:])
-
+                text_to_add = get_russian_phrase()
+        
+        # ========== ОСТАЛЬНЫЕ БЛОКИ БЕЗ ИЗМЕНЕНИЙ ==========
         elif parts and parts[0] == 'text':
             text_match = re.search(r'text\s+"([^"]+)"', query_text, re.IGNORECASE)
             if text_match:
@@ -388,41 +459,24 @@ def inline_handler(inline_query):
         elif query_text:
             search_query = query_text
 
-        if is_randtext:
-            text_to_add = get_random_russian_words(randtext_count)
+        # ========== ОТПРАВКА РЕЗУЛЬТАТОВ ==========
+        if is_randtext or text_to_add:
             image_url, _ = get_random_image(search_query)
             
             if image_url:
                 full = add_text_to_image(image_url, text_to_add)
                 if full:
-                    image_id = generate_unique_id("randtext")
+                    image_id = generate_unique_id("randtext" if is_randtext else "text")
                     temp_images[image_id] = (full.getvalue(), time.time())
                     
                     hostname = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost")
                     url = f"https://{hostname}/image/{image_id}"
                     
-                    result = telebot.types.InlineQueryResultPhoto(
-                        id=image_id,
-                        photo_url=url,
-                        thumbnail_url=url,
-                        title=f"Слова ({randtext_count})",
-                        description=text_to_add
-                    )
-                    results.append(result)
-
-        elif text_to_add:
-            image_url, _ = get_random_image(search_query)
-            
-            if image_url:
-                full = add_text_to_image(image_url, text_to_add)
-                if full:
-                    image_id = generate_unique_id("text")
-                    temp_images[image_id] = (full.getvalue(), time.time())
-                    
-                    hostname = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost")
-                    url = f"https://{hostname}/image/{image_id}"
-                    
-                    title = text_to_add[:30] + "..." if len(text_to_add) > 30 else text_to_add
+                    # Определяем заголовок
+                    if is_randtext and phrase_count > 1:
+                        title = f"{phrase_count} фразы"
+                    else:
+                        title = text_to_add[:30] + "..." if len(text_to_add) > 30 else text_to_add
                     
                     result = telebot.types.InlineQueryResultPhoto(
                         id=image_id,
@@ -487,7 +541,6 @@ def index():
         f'API: {", ".join(available_apis)}<br>'
         f'Изображений в памяти: {len(temp_images)}<br>'
         f'Фраз: {sum(len(v) for v in PHRASES.values())}<br>'
-        f'Слов: {len(words_cache)}<br>'
         f'Домен: https://{hostname}'
     ), 200
 
