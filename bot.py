@@ -237,26 +237,34 @@ def add_text_to_image(image_url, text):
             img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
         
         draw = ImageDraw.Draw(img)
-        font_size = int(img.height * 0.12)
+        font_size = int(img.height * 0.08)  # как в вашем старом коде
         font = None
         
+        # Приоритет: Impact (мемный), потом DejaVu (запасной)
         font_paths = [
-           '/app/fonts/Impact.ttf',                          # наш мемный Impact
+            '/app/fonts/Impact.ttf',           # наш Impact
+            '/app/fonts/impact.ttf',           # если маленькими буквами
             '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',  # запасной
         ]
-        for font_path in font_paths:
+        
+        for path in font_paths:
             try:
-                font = ImageFont.truetype(font_path, font_size)
-                print(f"Шрифт загружен: {font_path}")
-                break
-            except Exception as font_err:
-                print (f"Шрифт {font_path} не найден: {font_err}")
-                pass
+                font = ImageFont.truetype(path, font_size, encoding='utf-8')
+                print(f"✅ Шрифт загружен: {path}")
+                
+                # Проверяем поддержку кириллицы
+                test_bbox = draw.textbbox((0, 0), "Тест", font=font)
+                if test_bbox[2] - test_bbox[0] > 0:
+                    break
+            except Exception as e:
+                print(f"Не удалось загрузить {path}: {e}")
+                continue
         
         if font is None:
             font = ImageFont.load_default()
-            print("Используем дефолтный шрифт")
+            print("⚠️ Используем дефолтный шрифт")
         
+        # Остальной код без изменений...
         max_width = img.width - 40
         words = text.split()
         lines = []
@@ -295,11 +303,11 @@ def add_text_to_image(image_url, text):
         img.save(full_output, format='JPEG', quality=90, optimize=True)
         full_output.seek(0)
         
-        print("Текст добавлен")
+        print("✅ Текст добавлен")
         return full_output
         
     except Exception as e:
-        print(f"Ошибка текста: {e}")
+        print(f"❌ Ошибка текста: {e}")
         traceback.print_exc()
         return None
 
