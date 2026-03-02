@@ -643,27 +643,27 @@ def create_collage_with_text(image_urls, count, text):
 @bot.message_handler(commands=['start', 'help'])
 def start_command(message):
     available_commands = list(PHRASES.keys())
-    commands_text = '\n'.join([f'• `@bot {cmd}` — случайная фраза из "{cmd}"' for cmd in available_commands])
+    commands_text = '\n'.join([f'• `@randompikcha2_bot  {cmd}` — случайная фраза из "{cmd}"' for cmd in available_commands])
     
     help_text = (
         '🎨 *Привет! Я бот для работы с картинками.*\n\n'
         '📸 *Основные режимы:*\n'
         '• Просто введи мое имя — одна случайная картинка\n'
-        '• `@bot cats` — картинка с котами\n\n'
+        '• `@randompikcha2_bot  cats` — картинка с котами\n\n'
         '🎨 *Коллажи:*\n'
-        '• `@bot 5` — коллаж из 5 случайных картинок\n'
-        '• `@bot 5 cats` — коллаж из 5 картинок с котами\n'
-        '• `@bot 5 papich cats` — коллаж из 5 котов с фразой из "papich" сверху\n\n'
+        '• `@randompikcha2_bot  5` — коллаж из 5 случайных картинок\n'
+        '• `@randompikcha2_bot  5 cats` — коллаж из 5 картинок с котами\n'
+        '• `@randompikcha2_bot  5 papich cats` — коллаж из 5 котов с фразой из "papich" сверху\n\n'
         '📝 *Текст на картинках:*\n'
-        '• `@bot text "Hello"` — картинка с текстом "Hello"\n'
-        '• `@bot text "Привет" cats` — картинка с котами и текстом\n'
-        '• `@bot 5 text "Привет" cats` — коллаж из 5 котов с текстом "Привет" сверху\n\n'
+        '• `@randompikcha2_bot  text "Hello"` — картинка с текстом "Hello"\n'
+        '• `@randompikcha2_bot  text "Привет" cats` — картинка с котами и текстом\n'
+        '• `@randompikcha2_bot  5 text "Привет" cats` — коллаж из 5 котов с текстом "Привет" сверху\n\n'
         '🎭 *Фразы по категориям:*\n'
         f'{commands_text}\n\n'
         '🎲 *Случайные слова:*\n'
-        '• `@bot randtext` — картинка со случайным русским словом\n'
-        '• `@bot randtext 3` — картинка с 3 случайными словами\n'
-        '• `@bot randtext 5 cats` — 5 случайных слов на фоне котов\n\n'
+        '• `@randompikcha2_bot  randtext` — картинка со случайным русским словом\n'
+        '• `@randompikcha2_bot  randtext 3` — картинка с 3 случайными словами\n'
+        '• `@randompikcha2_bot  randtext 5 cats` — 5 случайных слов на фоне котов\n\n'
         f'🔑 API: {", ".join(available_apis)}\n'
         f'💾 Фраз в базе: {sum(len(v) for v in PHRASES.values())}\n'
         f'📚 Русских слов: {len(words_cache)}'
