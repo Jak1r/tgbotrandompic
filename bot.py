@@ -1031,5 +1031,9 @@ def serve_image(image_id):
         print(f"❌ Картинка {image_id} НЕ найдена в памяти")
         abort(404)
 
-if __name__ != '__main__':
+if __name__ == '__main__':
+    # Для локального запуска
+    app.run(host='0.0.0.0', port=PORT, debug=False)
+else:
+    # При импорте (на продакшене) устанавливаем вебхук
     setup_webhook()
