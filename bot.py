@@ -250,44 +250,104 @@ def add_text_to_image(image_url, text):
             img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
         
         draw = ImageDraw.Draw(img)
-        font_size = int(img.height * 0.12)
-        font = None
         
+        # Загружаем шрифт
         font_paths = [
            '/app/fonts/Impact.ttf',
             '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
         ]
+        
+        # Сначала загружаем шрифт с базовым размером для тестов
+        base_font = None
         for font_path in font_paths:
             try:
-                font = ImageFont.truetype(font_path, font_size)
+                base_font = ImageFont.truetype(font_path, 100)
                 print(f"Шрифт загружен: {font_path}")
                 break
             except Exception as font_err:
-                print (f"Шрифт {font_path} не найден: {font_err}")
+                print(f"Шрифт {font_path} не найден: {font_err}")
                 pass
         
-        if font is None:
-            font = ImageFont.load_default()
+        if base_font is None:
+            base_font = ImageFont.load_default()
             print("Используем дефолтный шрифт")
         
-        max_width = img.width - 40
+        # ========== АВТОМАТИЧЕСКОЕ МАСШТАБИРОВАНИЕ ==========
+        target_width = img.width - 40  # отступы по краям
+        
+        # Разбиваем текст на слова
         words = text.split()
+        
+        # Пробуем разные размеры шрифта, пока текст не поместится по ширине
+        min_font_size = 20
+        max_font_size = int(img.height * 0.15)  # максимум 15% от высоты
+        optimal_font_size = max_font_size
+        
+        print(f"📏 Поиск оптимального размера шрифта от {min_font_size} до {max_font_size}px")
+        
+        # Бинарный поиск оптимального размера шрифта
+        low, high = min_font_size, max_font_size
+        best_size = min_font_size
+        
+        while low <= high:
+            mid = (low + high) // 2
+            test_font = base_font.font_variant(size=mid)
+            
+            # Проверяем, помещается ли текст по ширине
+            lines = []
+            current_line = []
+            
+            for word in words:
+                test_line = ' '.join(current_line + [word])
+                bbox = draw.textbbox((0, 0), test_line, font=test_font)
+                if bbox[2] - bbox[0] <= target_width:
+                    current_line.append(word)
+                else:
+                    if current_line:
+                        lines.append(' '.join(current_line))
+                    current_line = [word]
+            
+            if current_line:
+                lines.append(' '.join(current_line))
+            
+            # Если текст поместился (не больше 3 строк), пробуем увеличить шрифт
+            if len(lines) <= 3:  # ограничиваем 3 строками для читаемости
+                best_size = mid
+                low = mid + 1
+            else:
+                high = mid - 1
+        
+        optimal_font_size = best_size
+        print(f"✅ Оптимальный размер шрифта: {optimal_font_size}px")
+        
+        # Создаем шрифт с оптимальным размером
+        font = base_font.font_variant(size=optimal_font_size)
+        
+        # Разбиваем текст на строки с новым размером шрифта
         lines = []
         current_line = []
         
         for word in words:
             test_line = ' '.join(current_line + [word])
             bbox = draw.textbbox((0, 0), test_line, font=font)
-            if bbox[2] - bbox[0] <= max_width:
+            if bbox[2] - bbox[0] <= target_width:
                 current_line.append(word)
             else:
-                lines.append(' '.join(current_line))
+                if current_line:
+                    lines.append(' '.join(current_line))
                 current_line = [word]
         
         if current_line:
             lines.append(' '.join(current_line))
         
+        print(f"📝 Текст разбит на {len(lines)} строк")
+        
+        # Рисуем текст снизу вверх
         y_offset = img.height - 60
+        
+        # Толщина обводки тоже масштабируется
+        outline_range = max(2, int(optimal_font_size * 0.03))  # 3% от размера шрифта
+        print(f"✏️ Толщина обводки: {outline_range}px")
         
         for line in reversed(lines):
             bbox = draw.textbbox((0, 0), line, font=font)
@@ -296,19 +356,21 @@ def add_text_to_image(image_url, text):
             x = (img.width - tw) // 2
             y = y_offset - th
             
-            outline_range = 3
+            # Рисуем обводку
             for dx in range(-outline_range, outline_range + 1):
                 for dy in range(-outline_range, outline_range + 1):
-                    draw.text((x + dx, y + dy), line, font=font, fill='black')
+                    if dx != 0 or dy != 0:
+                        draw.text((x + dx, y + dy), line, font=font, fill='black')
             
+            # Рисуем текст
             draw.text((x, y), line, font=font, fill='white')
-            y_offset = y - 10
+            y_offset = y - int(optimal_font_size * 0.2)  # отступ между строками = 20% от размера шрифта
         
         full_output = BytesIO()
         img.save(full_output, format='JPEG', quality=90, optimize=True)
         full_output.seek(0)
         
-        print("✅ Текст добавлен")
+        print(f"✅ Текст успешно добавлен, размер шрифта: {optimal_font_size}px")
         return full_output
         
     except Exception as e:
