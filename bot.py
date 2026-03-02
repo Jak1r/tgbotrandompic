@@ -17,11 +17,11 @@ import uuid
 # Загружаем переменные окружения
 load_dotenv()
 
-TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
-UNSPLASH_ACCESS_KEY = os.environ.get('UNSPLASH_ACCESS_KEY')
-PEXELS_API_KEY = os.environ.get('PEXELS_API_KEY')
-PIXABAY_API_KEY = os.environ.get('PIXABAY_API_KEY')
-PORT = int(os.environ.get('PORT', 10000))
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
+UNSPLASH_ACCESS_KEY = os.getenv('UNSPLASH_ACCESS_KEY')
+PEXELS_API_KEY = os.getenv('PEXELS_API_KEY')
+PIXABAY_API_KEY = os.getenv('PIXABAY_API_KEY')
+PORT = int(os.getenv('PORT', 10000))
 
 if not TELEGRAM_TOKEN:
     raise ValueError("TELEGRAM_TOKEN не задан в переменных окружения")
