@@ -1,19 +1,18 @@
 FROM python:3.11-slim
 
-# Устанавливаем wget
+# Устанавливаем необходимые пакеты
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
+    cabextract \
+    xfonts-utils \
+    fontconfig \
     && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /app/fonts
-
-# Скачиваем Impact с кириллицей
-RUN wget -O /app/fonts/Impact.ttf \
-    "https://raw.githubusercontent.com/HuakunShen/Fonts/master/Impact.ttf"
-
-# ИЛИ альтернативный источник:
-# RUN wget -O /app/fonts/Impact.ttf \
-#     "https://github.com/mat/best/raw/master/fonts/impact/impact.ttf"
+# Устанавливаем Microsoft Core Fonts через cabextract
+RUN wget -O /tmp/impact.exe "https://downloads.sourceforge.net/project/corefonts/the%20fonts/final/impact32.exe" \
+    && cabextract -L -d /app/fonts /tmp/impact.exe \
+    && rm /tmp/impact.exe \
+    && mv /app/fonts/Impact.TTF /app/fonts/Impact.ttf
 
 WORKDIR /app
 
