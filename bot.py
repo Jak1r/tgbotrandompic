@@ -3,7 +3,7 @@ import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import random
 import requests
-from flask import Flask, request, abort, send_file, redirect
+from flask import Flask, request, abort, send_file
 from dotenv import load_dotenv
 import time
 from PIL import Image, ImageDraw, ImageFont
@@ -14,6 +14,7 @@ import json
 import uuid
 import sys
 import traceback
+import tempfile
 
 print("=== START bot.py ===")
 print(f"Python version: {sys.version}")
@@ -70,13 +71,12 @@ RANDOM_QUERIES = [
     'forest', 'sunset', 'flowers', 'architecture', 'beach', 'winter'
 ]
 
-# ========== НОВАЯ ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ ФРАЗ ==========
+# Функция для получения фраз из Fucking Great Advice
 def get_russian_phrase():
     """Получает случайную русскую фразу из Fucking Great Advice API"""
     try:
         print("Запрашиваем фразу из Fucking Great Advice...")
         
-        # Пробуем получить фразу из API
         response = requests.get(
             'https://fucking-great-advice.ru/api/random',
             timeout=5,
@@ -87,7 +87,6 @@ def get_russian_phrase():
             data = response.json()
             phrase = data.get('text', '').strip()
             
-            # Проверяем, что фраза не пустая и на русском
             if phrase and len(phrase) > 5:
                 print(f"✅ Получена фраза: {phrase[:50]}...")
                 return phrase
@@ -95,7 +94,6 @@ def get_russian_phrase():
     except Exception as e:
         print(f"⚠️ Ошибка получения фразы из API: {e}")
     
-    # Если API не сработало, используем запасные фразы
     print("⚠️ Используем запасные фразы")
     return get_backup_phrase()
 
@@ -111,60 +109,14 @@ def get_backup_phrase():
         "Дорогу осилит идущий!",
         "Сегодня твой день!",
         "У тебя всё получится!",
-        "Мечты сбываются!",
-        "Живи ярко!",
-        "Будь счастлив!",
-        "Цени момент!",
-        "Всё в твоих руках!",
-        "Действуй!",
-        "Не останавливайся!",
-        "Вперёд к мечте!",
-        "Ты уникален!",
-        "Продолжай двигаться!",
-        "Выше только небо!"
+        "Мечты сбываются!"
     ]
     return random.choice(backup_phrases)
 
-# ========== КОНЕЦ НОВОЙ ФУНКЦИИ ==========
-
-words_cache = []
-
-def fetch_russian_words():
-    global words_cache
-    if words_cache:
-        return words_cache
-
-    print("Загружаем русские слова...")
-    try:
-        r = requests.get("https://raw.githubusercontent.com/danakt/russian-words/master/russian.txt", timeout=12)
-        if r.ok:
-            words = r.text.splitlines()
-            good = [w.lower() for w in words if 3 <= len(w) <= 15 and all('а' <= c <= 'я' or c == 'ё' for c in w.lower())]
-            words_cache = list(set(good))
-            print(f"Загружено {len(words_cache)} слов")
-    except Exception as e:
-        print(f"Ошибка: {e}")
-        words_cache = ['мир', 'дом', 'лес', 'река', 'кот']
-
-    return words_cache
-
-fetch_russian_words()
-
 bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
 app = Flask(__name__)
-from werkzeug.middleware.proxy_fix import ProxyFix
-app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
-
-@app.before_request
-def before_request():
-    # Перенаправляем HTTP на HTTPS
-    if not request.is_secure and not request.headers.get('X-Forwarded-Proto', 'http') == 'https':
-        if request.url.startswith('http://'):
-            url = request.url.replace('http://', 'https://', 1)
-            return redirect(url, code=301)
 
 current_api_index = 0
-temp_images = {}
 
 def generate_unique_id(prefix="img"):
     timestamp = int(time.time() * 1000)
@@ -176,18 +128,6 @@ def get_random_phrase(category="random"):
     if category in PHRASES and PHRASES[category]:
         return random.choice(PHRASES[category])
     return "Случайная фраза"
-
-def cleanup_temp_images():
-    while True:
-        time.sleep(600)
-        now = time.time()
-        to_delete = [k for k, (_, ts) in temp_images.items() if now - ts > 900]
-        for k in to_delete:
-            del temp_images[k]
-        if to_delete:
-            print(f"Очищено {len(to_delete)} изображений")
-
-threading.Thread(target=cleanup_temp_images, daemon=True).start()
 
 def setup_webhook():
     hostname = os.getenv("RAILWAY_PUBLIC_DOMAIN")
@@ -296,44 +236,106 @@ def add_text_to_image(image_url, text):
             img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
         
         draw = ImageDraw.Draw(img)
-        font_size = int(img.height * 0.12)
-        font = None
         
+        # Загружаем шрифт
+        font = None
         font_paths = [
            '/app/fonts/Impact.ttf',
             '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
         ]
+        
+        # Сначала загружаем шрифт с базовым размером
+        base_font = None
         for font_path in font_paths:
             try:
-                font = ImageFont.truetype(font_path, font_size)
+                base_font = ImageFont.truetype(font_path, 100)  # загружаем с большим размером для теста
                 print(f"Шрифт загружен: {font_path}")
                 break
             except Exception as font_err:
-                print (f"Шрифт {font_path} не найден: {font_err}")
+                print(f"Шрифт {font_path} не найден: {font_err}")
                 pass
         
-        if font is None:
-            font = ImageFont.load_default()
+        if base_font is None:
+            base_font = ImageFont.load_default()
             print("Используем дефолтный шрифт")
         
-        max_width = img.width - 40
+        # ========== АВТОМАТИЧЕСКОЕ МАСШТАБИРОВАНИЕ ТЕКСТА ==========
+        target_width = img.width - 40  # отступы по краям
+        target_height = img.height * 0.4  # текст занимает не более 40% высоты
+        
+        # Разбиваем текст на слова
         words = text.split()
+        
+        # Пробуем разные размеры шрифта, пока текст не поместится
+        min_font_size = 20
+        max_font_size = int(img.height * 0.15)  # максимум 15% от высоты
+        optimal_font_size = max_font_size
+        
+        # Бинарный поиск оптимального размера шрифта
+        low, high = min_font_size, max_font_size
+        best_size = min_font_size
+        
+        while low <= high:
+            mid = (low + high) // 2
+            test_font = base_font.font_variant(size=mid)
+            
+            # Проверяем, помещается ли текст по ширине
+            lines = []
+            current_line = []
+            
+            for word in words:
+                test_line = ' '.join(current_line + [word])
+                bbox = draw.textbbox((0, 0), test_line, font=test_font)
+                if bbox[2] - bbox[0] <= target_width:
+                    current_line.append(word)
+                else:
+                    if current_line:
+                        lines.append(' '.join(current_line))
+                    current_line = [word]
+            
+            if current_line:
+                lines.append(' '.join(current_line))
+            
+            # Проверяем, помещается ли текст по высоте
+            total_height = 0
+            for line in lines:
+                bbox = draw.textbbox((0, 0), line, font=test_font)
+                total_height += (bbox[3] - bbox[1]) + 10  # +10 отступ между строками
+            
+            if total_height <= target_height:
+                best_size = mid
+                low = mid + 1  # пробуем увеличить
+            else:
+                high = mid - 1  # уменьшаем
+        
+        optimal_font_size = best_size
+        print(f"📏 Оптимальный размер шрифта: {optimal_font_size}px (макс: {max_font_size}px)")
+        
+        # Создаем шрифт с оптимальным размером
+        font = base_font.font_variant(size=optimal_font_size)
+        
+        # Разбиваем текст на строки с новым размером шрифта
         lines = []
         current_line = []
         
         for word in words:
             test_line = ' '.join(current_line + [word])
             bbox = draw.textbbox((0, 0), test_line, font=font)
-            if bbox[2] - bbox[0] <= max_width:
+            if bbox[2] - bbox[0] <= target_width:
                 current_line.append(word)
             else:
-                lines.append(' '.join(current_line))
+                if current_line:
+                    lines.append(' '.join(current_line))
                 current_line = [word]
         
         if current_line:
             lines.append(' '.join(current_line))
         
+        # Рисуем текст снизу вверх
         y_offset = img.height - 60
+        
+        # Толщина обводки тоже масштабируется
+        outline_range = max(2, int(optimal_font_size * 0.03))  # 3% от размера шрифта
         
         for line in reversed(lines):
             bbox = draw.textbbox((0, 0), line, font=font)
@@ -342,23 +344,25 @@ def add_text_to_image(image_url, text):
             x = (img.width - tw) // 2
             y = y_offset - th
             
-            outline_range = 3
+            # Рисуем обводку
             for dx in range(-outline_range, outline_range + 1):
                 for dy in range(-outline_range, outline_range + 1):
-                    draw.text((x + dx, y + dy), line, font=font, fill='black')
+                    if dx != 0 or dy != 0:
+                        draw.text((x + dx, y + dy), line, font=font, fill='black')
             
+            # Рисуем текст
             draw.text((x, y), line, font=font, fill='white')
-            y_offset = y - 10
+            y_offset = y - int(optimal_font_size * 0.2)  # отступ между строками = 20% от размера шрифта
         
         full_output = BytesIO()
         img.save(full_output, format='JPEG', quality=90, optimize=True)
         full_output.seek(0)
         
-        print("Текст добавлен")
+        print(f"✅ Текст добавлен, использовано строк: {len(lines)}")
         return full_output
         
     except Exception as e:
-        print(f"Ошибка текста: {e}")
+        print(f"❌ Ошибка текста: {e}")
         traceback.print_exc()
         return None
 
@@ -378,7 +382,7 @@ def start_command(message):
         '🎭 Фразы:\n'
         f'{commands_text}\n\n'
         '🎲 Случайные фразы:\n'
-        '• `@твойбот randtext` — картинка + осмысленная фраза из Fucking Great Advice\n'
+        '• `@твойбот randtext` — картинка + осмысленная фраза\n'
         '• `@твойбот randtext 3` — 3 фразы на одной картинке\n'
         '• `@твойбот randtext природа` — фраза + картинка по теме\n'
         f'API: {", ".join(available_apis)}'
@@ -411,7 +415,6 @@ def handle_callback(call):
 @bot.inline_handler(lambda query: True)
 def inline_handler(inline_query):
     print(f"Inline-запрос: '{inline_query.query}' от {inline_query.from_user.id}")
-    print(f"Temp images: {len(temp_images)}")
 
     query_text = inline_query.query.strip().lower()
     results = []
@@ -420,40 +423,34 @@ def inline_handler(inline_query):
         text_to_add = None
         search_query = query_text
         is_randtext = False
-        phrase_category = None
+        phrase_count = 1
 
         parts = query_text.split()
 
-        # ========== ОБНОВЛЕННЫЙ БЛОК RANDTEXT ==========
+        # Обработка randtext
         if parts and parts[0] == 'randtext':
             is_randtext = True
-            text_to_add = None
-            phrase_count = 1  # по умолчанию одна фраза
             
-            # Проверяем аргументы
             if len(parts) > 1:
                 if parts[1].isdigit():
-                    # randtext 3 - несколько фраз
-                    phrase_count = min(int(parts[1]), 3)  # максимум 3 фразы
+                    phrase_count = min(int(parts[1]), 3)
                     search_query = ' '.join(parts[2:]) if len(parts) > 2 else None
                 else:
-                    # randtext природа - одна фраза + тема
                     search_query = ' '.join(parts[1:])
             
-            # Получаем нужное количество фраз
             if phrase_count > 1:
                 phrases = []
                 for i in range(phrase_count):
                     print(f"Получаем фразу {i+1} из {phrase_count}...")
                     phrase = get_russian_phrase()
                     phrases.append(phrase)
-                    if i < phrase_count - 1:  # не ждем после последней
-                        time.sleep(0.5)  # небольшая задержка между запросами
-                text_to_add = ' | '.join(phrases)  # разделяем фразы символом |
+                    if i < phrase_count - 1:
+                        time.sleep(0.5)
+                text_to_add = ' | '.join(phrases)
             else:
                 text_to_add = get_russian_phrase()
         
-        # ========== ОСТАЛЬНЫЕ БЛОКИ БЕЗ ИЗМЕНЕНИЙ ==========
+        # Обработка text
         elif parts and parts[0] == 'text':
             text_match = re.search(r'text\s+"([^"]+)"', query_text, re.IGNORECASE)
             if text_match:
@@ -461,6 +458,7 @@ def inline_handler(inline_query):
                 remaining = re.sub(r'text\s+"[^"]+"', '', query_text, flags=re.IGNORECASE).strip()
                 search_query = remaining if remaining else None
 
+        # Обработка категорий фраз
         elif parts and parts[0] in PHRASES:
             phrase_category = parts[0]
             text_to_add = get_random_phrase(phrase_category)
@@ -469,49 +467,51 @@ def inline_handler(inline_query):
         elif query_text:
             search_query = query_text
 
-        # ========== ОТПРАВКА РЕЗУЛЬТАТОВ ==========
-        if is_randtext or text_to_add:
+        # Отправка фото с текстом
+        if text_to_add or is_randtext:
             image_url, _ = get_random_image(search_query)
             
             if image_url:
                 full = add_text_to_image(image_url, text_to_add)
                 if full:
-                    image_id = generate_unique_id("randtext" if is_randtext else "text")
-                    temp_images[image_id] = (full.getvalue(), time.time())
+                    with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+                        tmp.write(full.getvalue())
+                        tmp_path = tmp.name
                     
-                    hostname = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost")
-                    url = f"https://{hostname}/image/{image_id}"
-                    
-                    # Определяем заголовок
-                    if is_randtext and phrase_count > 1:
-                        title = f"{phrase_count} фразы"
-                    else:
-                        title = text_to_add[:30] + "..." if len(text_to_add) > 30 else text_to_add
-                    
-                    result = telebot.types.InlineQueryResultPhoto(
-                        id=image_id,
-                        photo_url=url,
-                        thumbnail_url=url,
-                        title=title,
-                        description=text_to_add
-                    )
-                    results.append(result)
+                    try:
+                        with open(tmp_path, 'rb') as photo:
+                            photo_data = BytesIO(photo.read())
+                            photo_data.seek(0)
+                            
+                            result = telebot.types.InlineQueryResultPhoto(
+                                id=generate_unique_id(),
+                                photo=photo_data,
+                                thumbnail=photo_data,
+                                photo_width=1080,
+                                photo_height=720,
+                                title=text_to_add[:30] + "..." if len(text_to_add) > 30 else text_to_add,
+                                description=text_to_add
+                            )
+                            results.append(result)
+                            print(f"✅ Фото готово к отправке")
+                    finally:
+                        try:
+                            os.unlink(tmp_path)
+                        except:
+                            pass
 
         else:
+            # Обычная картинка без текста
             image_url, thumb_url = get_random_image(search_query)
             
             if image_url and thumb_url:
-                result_id = generate_unique_id("img")
-                
-                title = search_query or "Случайная картинка"
-                
                 result = telebot.types.InlineQueryResultPhoto(
-                    id=result_id,
+                    id=generate_unique_id("img"),
                     photo_url=image_url,
                     thumbnail_url=thumb_url,
                     photo_width=1080,
                     photo_height=720,
-                    title=title,
+                    title=search_query or "Случайная картинка",
                     description="Нажми отправить"
                 )
                 results.append(result)
@@ -523,12 +523,13 @@ def inline_handler(inline_query):
     try:
         if results:
             bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
-            print(f"Отправлено {len(results)} результатов")
+            print(f"✅ Отправлено {len(results)} результатов")
         else:
             bot.answer_inline_query(inline_query.id, [], cache_time=0)
-            print("Нет результатов")
+            print("❌ Нет результатов")
     except Exception as e:
-        print(f"Ошибка ответа inline: {e}")
+        print(f"❌ Ошибка ответа inline: {e}")
+        traceback.print_exc()
 
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
 def webhook():
@@ -549,7 +550,6 @@ def index():
     return (
         f'🤖 Bot работает на Railway<br>'
         f'API: {", ".join(available_apis)}<br>'
-        f'Изображений в памяти: {len(temp_images)}<br>'
         f'Фраз: {sum(len(v) for v in PHRASES.values())}<br>'
         f'Домен: https://{hostname}'
     ), 200
@@ -557,43 +557,6 @@ def index():
 @app.route('/health')
 def health():
     return 'OK', 200
-
-@app.route('/image/<image_id>', methods=['GET', 'HEAD'])
-def serve_image(image_id):
-    print(f"Запрос изображения {image_id}")
-    
-    if image_id in temp_images:
-        image_data, timestamp = temp_images[image_id]
-        
-        if request.method == 'HEAD':
-            response = app.make_response('')
-            response.headers['Content-Type'] = 'image/jpeg'
-            response.headers['Content-Length'] = str(len(image_data))
-            response.headers['Access-Control-Allow-Origin'] = '*'
-            response.headers['Cache-Control'] = 'public, max-age=3600'
-            # Добавляем заголовки для HTTPS
-            response.headers['Content-Security-Policy'] = "default-src 'self'"
-            response.headers['X-Content-Type-Options'] = 'nosniff'
-            return response
-        
-        # Создаем ответ с изображением
-        response = send_file(
-            BytesIO(image_data),
-            mimetype='image/jpeg',
-            as_attachment=False,
-            download_name=f'{image_id}.jpg'
-        )
-        
-        # Добавляем заголовки для HTTPS
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        response.headers['Cache-Control'] = 'public, max-age=3600'
-        response.headers['Content-Security-Policy'] = "default-src 'self'"
-        response.headers['X-Content-Type-Options'] = 'nosniff'
-        
-        return response
-        
-    print(f"Изображение {image_id} не найдено")
-    abort(404)
 
 if __name__ == '__main__':
     setup_webhook()
