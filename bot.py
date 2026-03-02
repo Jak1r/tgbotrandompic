@@ -3,7 +3,7 @@ import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import random
 import requests
-from flask import Flask, request, abort, send_file
+from flask import Flask, request, abort, send_file, redirect
 from dotenv import load_dotenv
 import time
 from PIL import Image, ImageDraw, ImageFont
@@ -152,6 +152,16 @@ fetch_russian_words()
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
 app = Flask(__name__)
+from werkzeug.middleware.proxy_fix import ProxyFix
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+
+@app.before_request
+def before_request():
+    # Перенаправляем HTTP на HTTPS
+    if not request.is_secure and not request.headers.get('X-Forwarded-Proto', 'http') == 'https':
+        if request.url.startswith('http://'):
+            url = request.url.replace('http://', 'https://', 1)
+            return redirect(url, code=301)
 
 current_api_index = 0
 temp_images = {}
@@ -561,14 +571,27 @@ def serve_image(image_id):
             response.headers['Content-Length'] = str(len(image_data))
             response.headers['Access-Control-Allow-Origin'] = '*'
             response.headers['Cache-Control'] = 'public, max-age=3600'
+            # Добавляем заголовки для HTTPS
+            response.headers['Content-Security-Policy'] = "default-src 'self'"
+            response.headers['X-Content-Type-Options'] = 'nosniff'
             return response
         
-        return send_file(
+        # Создаем ответ с изображением
+        response = send_file(
             BytesIO(image_data),
             mimetype='image/jpeg',
             as_attachment=False,
             download_name=f'{image_id}.jpg'
         )
+        
+        # Добавляем заголовки для HTTPS
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Cache-Control'] = 'public, max-age=3600'
+        response.headers['Content-Security-Policy'] = "default-src 'self'"
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        
+        return response
+        
     print(f"Изображение {image_id} не найдено")
     abort(404)
 
