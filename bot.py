@@ -14,7 +14,6 @@ import json
 import uuid
 import sys
 import traceback
-import tempfile
 
 print("=== START bot.py ===")
 print(f"Python version: {sys.version}")
@@ -117,6 +116,7 @@ bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
 app = Flask(__name__)
 
 current_api_index = 0
+temp_images = {}  # Хранилище для временных изображений
 
 def generate_unique_id(prefix="img"):
     timestamp = int(time.time() * 1000)
@@ -128,6 +128,20 @@ def get_random_phrase(category="random"):
     if category in PHRASES and PHRASES[category]:
         return random.choice(PHRASES[category])
     return "Случайная фраза"
+
+def cleanup_temp_images():
+    """Очистка старых изображений"""
+    while True:
+        time.sleep(600)  # Каждые 10 минут
+        now = time.time()
+        to_delete = [k for k, (_, ts) in temp_images.items() if now - ts > 900]  # 15 минут
+        for k in to_delete:
+            del temp_images[k]
+        if to_delete:
+            print(f"🧹 Очищено {len(to_delete)} старых изображений")
+
+# Запускаем поток очистки
+threading.Thread(target=cleanup_temp_images, daemon=True).start()
 
 def setup_webhook():
     hostname = os.getenv("RAILWAY_PUBLIC_DOMAIN")
@@ -236,106 +250,44 @@ def add_text_to_image(image_url, text):
             img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
         
         draw = ImageDraw.Draw(img)
-        
-        # Загружаем шрифт
+        font_size = int(img.height * 0.12)
         font = None
+        
         font_paths = [
            '/app/fonts/Impact.ttf',
             '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
         ]
-        
-        # Сначала загружаем шрифт с базовым размером
-        base_font = None
         for font_path in font_paths:
             try:
-                base_font = ImageFont.truetype(font_path, 100)  # загружаем с большим размером для теста
+                font = ImageFont.truetype(font_path, font_size)
                 print(f"Шрифт загружен: {font_path}")
                 break
             except Exception as font_err:
-                print(f"Шрифт {font_path} не найден: {font_err}")
+                print (f"Шрифт {font_path} не найден: {font_err}")
                 pass
         
-        if base_font is None:
-            base_font = ImageFont.load_default()
+        if font is None:
+            font = ImageFont.load_default()
             print("Используем дефолтный шрифт")
         
-        # ========== АВТОМАТИЧЕСКОЕ МАСШТАБИРОВАНИЕ ТЕКСТА ==========
-        target_width = img.width - 40  # отступы по краям
-        target_height = img.height * 0.4  # текст занимает не более 40% высоты
-        
-        # Разбиваем текст на слова
+        max_width = img.width - 40
         words = text.split()
-        
-        # Пробуем разные размеры шрифта, пока текст не поместится
-        min_font_size = 20
-        max_font_size = int(img.height * 0.15)  # максимум 15% от высоты
-        optimal_font_size = max_font_size
-        
-        # Бинарный поиск оптимального размера шрифта
-        low, high = min_font_size, max_font_size
-        best_size = min_font_size
-        
-        while low <= high:
-            mid = (low + high) // 2
-            test_font = base_font.font_variant(size=mid)
-            
-            # Проверяем, помещается ли текст по ширине
-            lines = []
-            current_line = []
-            
-            for word in words:
-                test_line = ' '.join(current_line + [word])
-                bbox = draw.textbbox((0, 0), test_line, font=test_font)
-                if bbox[2] - bbox[0] <= target_width:
-                    current_line.append(word)
-                else:
-                    if current_line:
-                        lines.append(' '.join(current_line))
-                    current_line = [word]
-            
-            if current_line:
-                lines.append(' '.join(current_line))
-            
-            # Проверяем, помещается ли текст по высоте
-            total_height = 0
-            for line in lines:
-                bbox = draw.textbbox((0, 0), line, font=test_font)
-                total_height += (bbox[3] - bbox[1]) + 10  # +10 отступ между строками
-            
-            if total_height <= target_height:
-                best_size = mid
-                low = mid + 1  # пробуем увеличить
-            else:
-                high = mid - 1  # уменьшаем
-        
-        optimal_font_size = best_size
-        print(f"📏 Оптимальный размер шрифта: {optimal_font_size}px (макс: {max_font_size}px)")
-        
-        # Создаем шрифт с оптимальным размером
-        font = base_font.font_variant(size=optimal_font_size)
-        
-        # Разбиваем текст на строки с новым размером шрифта
         lines = []
         current_line = []
         
         for word in words:
             test_line = ' '.join(current_line + [word])
             bbox = draw.textbbox((0, 0), test_line, font=font)
-            if bbox[2] - bbox[0] <= target_width:
+            if bbox[2] - bbox[0] <= max_width:
                 current_line.append(word)
             else:
-                if current_line:
-                    lines.append(' '.join(current_line))
+                lines.append(' '.join(current_line))
                 current_line = [word]
         
         if current_line:
             lines.append(' '.join(current_line))
         
-        # Рисуем текст снизу вверх
         y_offset = img.height - 60
-        
-        # Толщина обводки тоже масштабируется
-        outline_range = max(2, int(optimal_font_size * 0.03))  # 3% от размера шрифта
         
         for line in reversed(lines):
             bbox = draw.textbbox((0, 0), line, font=font)
@@ -344,21 +296,19 @@ def add_text_to_image(image_url, text):
             x = (img.width - tw) // 2
             y = y_offset - th
             
-            # Рисуем обводку
+            outline_range = 3
             for dx in range(-outline_range, outline_range + 1):
                 for dy in range(-outline_range, outline_range + 1):
-                    if dx != 0 or dy != 0:
-                        draw.text((x + dx, y + dy), line, font=font, fill='black')
+                    draw.text((x + dx, y + dy), line, font=font, fill='black')
             
-            # Рисуем текст
             draw.text((x, y), line, font=font, fill='white')
-            y_offset = y - int(optimal_font_size * 0.2)  # отступ между строками = 20% от размера шрифта
+            y_offset = y - 10
         
         full_output = BytesIO()
         img.save(full_output, format='JPEG', quality=90, optimize=True)
         full_output.seek(0)
         
-        print(f"✅ Текст добавлен, использовано строк: {len(lines)}")
+        print("✅ Текст добавлен")
         return full_output
         
     except Exception as e:
@@ -467,46 +417,44 @@ def inline_handler(inline_query):
         elif query_text:
             search_query = query_text
 
-        # Отправка фото с текстом
+        # Отправка фото с текстом через URL
         if text_to_add or is_randtext:
             image_url, _ = get_random_image(search_query)
             
             if image_url:
                 full = add_text_to_image(image_url, text_to_add)
                 if full:
-                    with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
-                        tmp.write(full.getvalue())
-                        tmp_path = tmp.name
+                    # Сохраняем изображение во временное хранилище
+                    image_id = generate_unique_id("randtext" if is_randtext else "text")
+                    temp_images[image_id] = (full.getvalue(), time.time())
                     
-                    try:
-                        with open(tmp_path, 'rb') as photo:
-                            photo_data = BytesIO(photo.read())
-                            photo_data.seek(0)
-                            
-                            result = telebot.types.InlineQueryResultPhoto(
-                                id=generate_unique_id(),
-                                photo=photo_data,
-                                thumbnail=photo_data,
-                                photo_width=1080,
-                                photo_height=720,
-                                title=text_to_add[:30] + "..." if len(text_to_add) > 30 else text_to_add,
-                                description=text_to_add
-                            )
-                            results.append(result)
-                            print(f"✅ Фото готово к отправке")
-                    finally:
-                        try:
-                            os.unlink(tmp_path)
-                        except:
-                            pass
+                    # Формируем URL для доступа к изображению
+                    hostname = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost")
+                    url = f"https://{hostname}/image/{image_id}"
+                    
+                    print(f"🔗 URL изображения: {url}")
+                    print(f"📸 Всего изображений в кэше: {len(temp_images)}")
+                    
+                    result = telebot.types.InlineQueryResultPhoto(
+                        id=image_id,
+                        photo_url=url,
+                        thumbnail_url=url,
+                        photo_width=1080,
+                        photo_height=720,
+                        title=text_to_add[:30] + "..." if len(text_to_add) > 30 else text_to_add,
+                        description=text_to_add
+                    )
+                    results.append(result)
 
         else:
             # Обычная картинка без текста
             image_url, thumb_url = get_random_image(search_query)
             
             if image_url and thumb_url:
+                result_id = generate_unique_id("img")
+                
                 result = telebot.types.InlineQueryResultPhoto(
-                    id=generate_unique_id("img"),
+                    id=result_id,
                     photo_url=image_url,
                     thumbnail_url=thumb_url,
                     photo_width=1080,
@@ -531,6 +479,39 @@ def inline_handler(inline_query):
         print(f"❌ Ошибка ответа inline: {e}")
         traceback.print_exc()
 
+# Эндпоинт для получения изображений
+@app.route('/image/<image_id>', methods=['GET', 'HEAD'])
+def serve_image(image_id):
+    print(f"🔍 Запрос изображения {image_id}")
+    
+    if image_id in temp_images:
+        image_data, timestamp = temp_images[image_id]
+        
+        if request.method == 'HEAD':
+            response = app.make_response('')
+            response.headers['Content-Type'] = 'image/jpeg'
+            response.headers['Content-Length'] = str(len(image_data))
+            response.headers['Access-Control-Allow-Origin'] = '*'
+            response.headers['Cache-Control'] = 'public, max-age=3600'
+            return response
+        
+        # Добавляем заголовки для правильной загрузки
+        response = send_file(
+            BytesIO(image_data),
+            mimetype='image/jpeg',
+            as_attachment=False,
+            download_name=f'{image_id}.jpg'
+        )
+        
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Cache-Control'] = 'public, max-age=3600'
+        
+        print(f"✅ Изображение {image_id} отправлено, размер: {len(image_data)} байт")
+        return response
+        
+    print(f"❌ Изображение {image_id} не найдено")
+    abort(404)
+
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
@@ -550,6 +531,7 @@ def index():
     return (
         f'🤖 Bot работает на Railway<br>'
         f'API: {", ".join(available_apis)}<br>'
+        f'Изображений в памяти: {len(temp_images)}<br>'
         f'Фраз: {sum(len(v) for v in PHRASES.values())}<br>'
         f'Домен: https://{hostname}'
     ), 200
