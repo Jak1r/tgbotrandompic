@@ -241,13 +241,15 @@ def get_random_image(custom_query=None):
 
 def add_text_to_image(image_url, text):
     try:
-        print(f"Добавляем текст: '{text}'")
+        print(f"🖼️ НАЧАЛО: Добавляем текст: '{text}'")
         r = requests.get(image_url, timeout=10)
         img = Image.open(BytesIO(r.content)).convert('RGB')
+        print(f"📐 Размер изображения: {img.width} x {img.height}")
         
         max_size = 1200
         if img.width > max_size or img.height > max_size:
             img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+            print(f"📐 После ресайза: {img.width} x {img.height}")
         
         draw = ImageDraw.Draw(img)
         
@@ -257,49 +259,44 @@ def add_text_to_image(image_url, text):
             '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
         ]
         
-        # Сначала загружаем шрифт с базовым размером для тестов
         base_font = None
         for font_path in font_paths:
             try:
                 base_font = ImageFont.truetype(font_path, 100)
-                print(f"Шрифт загружен: {font_path}")
+                print(f"✅ Шрифт загружен: {font_path}")
                 break
             except Exception as font_err:
-                print(f"Шрифт {font_path} не найден: {font_err}")
+                print(f"❌ Шрифт {font_path} не найден: {font_err}")
                 pass
         
         if base_font is None:
             base_font = ImageFont.load_default()
-            print("Используем дефолтный шрифт")
+            print("⚠️ Используем дефолтный шрифт")
         
-        # ========== АВТОМАТИЧЕСКОЕ МАСШТАБИРОВАНИЕ ==========
-        target_width = img.width - 40  # отступы по краям
-        
-        # Разбиваем текст на слова
+        # ========== ПРИНУДИТЕЛЬНОЕ МАСШТАБИРОВАНИЕ ==========
+        target_width = img.width - 40
         words = text.split()
         
-        # Пробуем разные размеры шрифта, пока текст не поместится по ширине
+        # Начинаем с большого шрифта и уменьшаем пока не поместится
+        font_size = int(img.height * 0.15)  # начинаем с 15% от высоты
         min_font_size = 20
-        max_font_size = int(img.height * 0.15)  # максимум 15% от высоты
-        optimal_font_size = max_font_size
         
-        print(f"📏 Поиск оптимального размера шрифта от {min_font_size} до {max_font_size}px")
+        print(f"🔍 Начинаем подбор шрифта с {font_size}px")
         
-        # Бинарный поиск оптимального размера шрифта
-        low, high = min_font_size, max_font_size
-        best_size = min_font_size
+        optimal_font_size = font_size
+        lines = []
         
-        while low <= high:
-            mid = (low + high) // 2
-            test_font = base_font.font_variant(size=mid)
+        # Уменьшаем шрифт пока текст не поместится
+        while font_size >= min_font_size:
+            font = base_font.font_variant(size=font_size)
             
-            # Проверяем, помещается ли текст по ширине
+            # Разбиваем на строки
             lines = []
             current_line = []
             
             for word in words:
                 test_line = ' '.join(current_line + [word])
-                bbox = draw.textbbox((0, 0), test_line, font=test_font)
+                bbox = draw.textbbox((0, 0), test_line, font=font)
                 if bbox[2] - bbox[0] <= target_width:
                     current_line.append(word)
                 else:
@@ -310,20 +307,21 @@ def add_text_to_image(image_url, text):
             if current_line:
                 lines.append(' '.join(current_line))
             
-            # Если текст поместился (не больше 3 строк), пробуем увеличить шрифт
-            if len(lines) <= 3:  # ограничиваем 3 строками для читаемости
-                best_size = mid
-                low = mid + 1
-            else:
-                high = mid - 1
+            print(f"  Размер {font_size}px → {len(lines)} строк")
+            
+            # Если текст помещается в разумное количество строк (макс 4)
+            if len(lines) <= 4:
+                optimal_font_size = font_size
+                print(f"✅ Подобран размер: {optimal_font_size}px, строк: {len(lines)}")
+                break
+            
+            # Уменьшаем шрифт на 10%
+            font_size = int(font_size * 0.9)
         
-        optimal_font_size = best_size
-        print(f"✅ Оптимальный размер шрифта: {optimal_font_size}px")
-        
-        # Создаем шрифт с оптимальным размером
+        # Финальный шрифт
         font = base_font.font_variant(size=optimal_font_size)
         
-        # Разбиваем текст на строки с новым размером шрифта
+        # Финальное разбиение на строки
         lines = []
         current_line = []
         
@@ -340,14 +338,13 @@ def add_text_to_image(image_url, text):
         if current_line:
             lines.append(' '.join(current_line))
         
-        print(f"📝 Текст разбит на {len(lines)} строк")
+        print(f"📝 Финальное разбиение: {len(lines)} строк")
+        for i, line in enumerate(lines, 1):
+            print(f"  Строка {i}: '{line}'")
         
-        # Рисуем текст снизу вверх
+        # Рисуем текст
         y_offset = img.height - 60
-        
-        # Толщина обводки тоже масштабируется
-        outline_range = max(2, int(optimal_font_size * 0.03))  # 3% от размера шрифта
-        print(f"✏️ Толщина обводки: {outline_range}px")
+        outline_range = max(2, int(optimal_font_size * 0.03))
         
         for line in reversed(lines):
             bbox = draw.textbbox((0, 0), line, font=font)
@@ -356,25 +353,25 @@ def add_text_to_image(image_url, text):
             x = (img.width - tw) // 2
             y = y_offset - th
             
-            # Рисуем обводку
+            # Обводка
             for dx in range(-outline_range, outline_range + 1):
                 for dy in range(-outline_range, outline_range + 1):
                     if dx != 0 or dy != 0:
                         draw.text((x + dx, y + dy), line, font=font, fill='black')
             
-            # Рисуем текст
+            # Текст
             draw.text((x, y), line, font=font, fill='white')
-            y_offset = y - int(optimal_font_size * 0.2)  # отступ между строками = 20% от размера шрифта
+            y_offset = y - int(optimal_font_size * 0.2)
         
         full_output = BytesIO()
         img.save(full_output, format='JPEG', quality=90, optimize=True)
         full_output.seek(0)
         
-        print(f"✅ Текст успешно добавлен, размер шрифта: {optimal_font_size}px")
+        print(f"✅ ГОТОВО: текст добавлен, шрифт {optimal_font_size}px")
         return full_output
         
     except Exception as e:
-        print(f"❌ Ошибка текста: {e}")
+        print(f"❌ КРИТИЧЕСКАЯ ОШИБКА: {e}")
         traceback.print_exc()
         return None
 
