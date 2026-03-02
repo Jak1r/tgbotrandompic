@@ -237,17 +237,20 @@ def add_text_to_image(image_url, text):
             img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
         
         draw = ImageDraw.Draw(img)
-        font_size = int(img.height * 0.08)
+        font_size = int(img.height * 0.12)
         font = None
         
-        font_paths = ['/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf']
-        
-        for path in font_paths:
+        font_paths = [
+           '/app/fonts/Impact.ttf',                          # наш мемный Impact
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',  # запасной
+        ]
+        for font_path in font_paths:
             try:
-                font = ImageFont.truetype(path, font_size)
-                print(f"Шрифт загружен: {path}")
+                font = ImageFont.truetype(font_path, font_size)
+                print(f"Шрифт загружен: {font_path}")
                 break
-            except:
+            except Exception as font_err:
+                print (f"Шрифт {font_path} не найден: {font_err}")
                 pass
         
         if font is None:
