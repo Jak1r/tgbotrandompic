@@ -305,8 +305,7 @@ def inline_handler(inline_query):
             title="🖼️ Случайная картинка",
             description="Просто случайное фото",
             input_message_content=InputTextMessageContent(
-                message_text="🔍 Генерирую случайное фото...\n\n_Результат появится через пару секунд_",
-                parse_mode='Markdown'
+                message_text="🔍 Генерирую случайное фото...\n\nРезультат появится через пару секунд"
             ),
             thumbnail_url="https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=200",
             thumbnail_width=200,
@@ -321,8 +320,7 @@ def inline_handler(inline_query):
             title="🎲 Случайная фраза",
             description=f"Пример: {random_phrase[:50]}...",
             input_message_content=InputTextMessageContent(
-                message_text=f"🎲 Случайная фраза: {random_phrase}\n\n_Используй `@randompikcha2_bot randtext` чтобы получить ещё_",
-                parse_mode='Markdown'
+                message_text=f"🎲 Случайная фраза: {random_phrase}\n\nИспользуй @randompikcha2_bot randtext чтобы получить ещё"
             ),
             thumbnail_url="https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=200",
             thumbnail_width=200,
@@ -336,8 +334,7 @@ def inline_handler(inline_query):
             title="🎭 Случайный мем",
             description="Свежий мем для поднятия настроения",
             input_message_content=InputTextMessageContent(
-                message_text="🔍 Ищу случайный мем...\n\n_Результат появится через пару секунд_",
-                parse_mode='Markdown'
+                message_text="🔍 Ищу случайный мем...\n\nРезультат появится через пару секунд"
             ),
             thumbnail_url="https://images.unsplash.com/photo-1554050857-c84a8abdb5e2?w=200",
             thumbnail_width=200,
@@ -352,8 +349,7 @@ def inline_handler(inline_query):
             title="🎲 Эмодзи дня",
             description=f"Твоё эмодзи на сегодня: {emoji}",
             input_message_content=InputTextMessageContent(
-                message_text=f"🎲 Твоё эмодзи дня - {emoji}",
-                parse_mode='HTML'
+                message_text=f"🎲 Твоё эмодзи дня - {emoji}"
             ),
             thumbnail_url="https://images.unsplash.com/photo-1518548419970-58e3b4079ab2?w=200",
             thumbnail_width=200,
@@ -371,8 +367,7 @@ def inline_handler(inline_query):
                 title="🎭 Случайная категория фраз",
                 description=f"[{random_category}] {random_phrase[:50]}...",
                 input_message_content=InputTextMessageContent(
-                    message_text=f"🎭 Категория «{random_category}»: {random_phrase}\n\n_Используй `@randompikcha2_bot {random_category}` чтобы получить ещё из этой категории_",
-                    parse_mode='Markdown'
+                    message_text=f"🎭 Категория «{random_category}»: {random_phrase}\n\nИспользуй @randompikcha2_bot {random_category} чтобы получить ещё из этой категории"
                 ),
                 thumbnail_url="https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=200",
                 thumbnail_width=200,
@@ -382,26 +377,24 @@ def inline_handler(inline_query):
         
         # 6. Инструкция
         help_text = (
-            "📖 **Как пользоваться:**\n\n"
-            "**Основные команды:**\n"
-            "• `@randompikcha2_bot` - это меню\n"
-            "• `@randompikcha2_bot кот` - фото по теме\n"
-            "• `@randompikcha2_bot 3` - 3 фото на выбор\n\n"
-            "**Текст на фото:**\n"
-            "• `@randompikcha2_bot \"Привет\"` - фото с текстом\n"
-            "• `@randompikcha2_bot \"Привет\" кот 3` - 3 фото котов с текстом\n\n"
-            "**Случайные фразы:**\n"
-            "• `@randompikcha2_bot randtext` - фото с фразой\n"
-            "• `@randompikcha2_bot randtext кот 2` - 2 фото котов с фразой\n\n"
-            "**Категории фраз:**\n"
-            + ''.join([f"• `@randompikcha2_bot {cat}` - фото с фразой из категории {cat}\n" for cat in PHRASES.keys()]) +
-            "\n**Мемы и GIF:**\n"
-            "• `@randompikcha2_bot meme` - случайный мем\n"
-            "• `@randompikcha2_bot gif` - случайная GIF\n"
-            "• `@randompikcha2_bot gif \"текст\"` - GIF с текстом\n\n"
-            "**Эмодзи дня:**\n"
-            "• `@randompikcha2_bot emoji` - твоё эмодзи на сегодня\n\n"
-            "⚡️ **Совет:** Добавляй число в конце для нескольких вариантов!"
+            "📖 Как пользоваться:\n\n"
+            "Основные команды:\n"
+            "• @randompikcha2_bot - это меню\n"
+            "• @randompikcha2_bot кот - фото по теме\n"
+            "• @randompikcha2_bot 3 - 3 фото на выбор\n\n"
+            "Текст на фото:\n"
+            "• @randompikcha2_bot \"Привет\" - фото с текстом\n"
+            "• @randompikcha2_bot \"Привет\" кот 3 - 3 фото котов с текстом\n\n"
+            "Случайные фразы:\n"
+            "• @randompikcha2_bot randtext - фото с фразой\n\n"
+            "Категории фраз:\n" +
+            '\n'.join([f"• @randompikcha2_bot {cat}" for cat in PHRASES.keys()]) +
+            "\n\nМемы и GIF:\n"
+            "• @randompikcha2_bot meme - случайный мем\n"
+            "• @randompikcha2_bot gif - случайная GIF\n\n"
+            "Эмодзи дня:\n"
+            "• @randompikcha2_bot emoji - твоё эмодзи на сегодня\n\n"
+            "⚡️ Совет: Добавляй число в конце для нескольких вариантов!"
         )
         
         result_help = InlineQueryResultArticle(
@@ -409,8 +402,7 @@ def inline_handler(inline_query):
             title="📖 Инструкция",
             description="Как пользоваться ботом",
             input_message_content=InputTextMessageContent(
-                message_text=help_text,
-                parse_mode='Markdown'
+                message_text=help_text
             ),
             thumbnail_url="https://images.unsplash.com/photo-1486312338219-ce68d2c6f44d?w=200",
             thumbnail_width=200,
@@ -463,7 +455,7 @@ def inline_handler(inline_query):
                 description=phrase,
                 input_message_content=InputTextMessageContent(
                     message_text=phrase,
-                    parse_mode='HTML'
+                    parse_mode=None
                 )
             )
             results.append(result)
