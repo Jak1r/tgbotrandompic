@@ -413,13 +413,13 @@ def inline_handler(inline_query):
     
     print(f"📨 Запрос: '{query_text}' от {user_id}")
     
-    # ===== УМНАЯ ЗАДЕРЖКА =====
+    # ===== УМНАЯ ЗАДЕРЖКА (только перед началом) =====
     if len(query_text) < 2:
         time.sleep(0.3)
     else:
         hash_input = f"{user_id}_{query_text}".encode()
         hash_value = int(hashlib.md5(hash_input).hexdigest(), 16)
-        delay = 0.5 + (hash_value % 7) / 10
+        delay = 0.5 + (hash_value % 7) / 10  # 0.5-1.2 сек
         time.sleep(delay)
     
     results = []
@@ -449,8 +449,9 @@ def inline_handler(inline_query):
                 for i in range(phrase_count):
                     phrase = get_russian_phrase()
                     phrases.append(phrase)
+                    # Между запросами к API фраз оставляем небольшую паузу, чтобы не забанили
                     if i < phrase_count - 1:
-                        time.sleep(0.3)
+                        time.sleep(0.2)
                 text_to_add = ' | '.join(phrases)
             else:
                 text_to_add = get_russian_phrase()
@@ -476,14 +477,14 @@ def inline_handler(inline_query):
             print(f"  → поиск: {query_text}")
             search_query = query_text
 
-        # ===== ГЕНЕРАЦИЯ 3 КАРТИНОК =====
+        # ===== ГЕНЕРАЦИЯ 3 КАРТИНОК (БЕЗ ЗАДЕРЖЕК) =====
         if text_to_add or is_randtext:
             print(f"🖼️ Генерируем 3 картинки с текстом: '{text_to_add[:30]}...'")
             
-            # Сначала находим 3 URL картинок
+            # Быстро собираем 3 URL
             image_urls = []
             attempts = 0
-            max_attempts = 15  # Увеличим количество попыток
+            max_attempts = 15
             
             while len(image_urls) < 3 and attempts < max_attempts:
                 image_url, _ = get_random_image(search_query)
@@ -491,29 +492,24 @@ def inline_handler(inline_query):
                     image_urls.append(image_url)
                     print(f"  ✅ Найдено {len(image_urls)}/3 URL")
                 attempts += 1
-                time.sleep(0.1)  # Небольшая задержка между запросами
+                # Убрали time.sleep(0.1)
             
             if len(image_urls) == 0:
                 print("❌ Не найдено ни одной картинки")
                 return
             
-            # Теперь генерируем картинки для каждого URL
+            # Генерируем все картинки максимально быстро
             for i, image_url in enumerate(image_urls):
                 print(f"  🎨 Генерируем картинку {i+1}/{len(image_urls)}")
                 full = add_text_to_image(image_url, text_to_add)
                 
                 if full:
                     image_id = generate_unique_id(f"text_{i+1}")
-                    # Сохраняем в temp_images
                     temp_images[image_id] = (full.getvalue(), time.time())
                     
-                    # Формируем URL
                     hostname = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost")
                     url = f"https://{hostname}/image/{image_id}"
                     
-                    print(f"    🔗 URL {i+1}: {url}")
-                    
-                    # Создаем результат
                     result = telebot.types.InlineQueryResultPhoto(
                         id=image_id,
                         photo_url=url,
@@ -531,19 +527,18 @@ def inline_handler(inline_query):
             # Обычные картинки без текста - тоже 3 варианта
             print(f"🖼️ Генерируем 3 картинки по запросу: '{search_query}'")
             
-            image_data = []  # (url, thumb)
+            image_data = []
             attempts = 0
             max_attempts = 15
             
             while len(image_data) < 3 and attempts < max_attempts:
                 image_url, thumb_url = get_random_image(search_query)
                 if image_url and thumb_url:
-                    # Проверяем, не использовали ли мы уже этот URL
                     if not any(url == image_url for url, _ in image_data):
                         image_data.append((image_url, thumb_url))
                         print(f"  ✅ Найдено {len(image_data)}/3 картинок")
                 attempts += 1
-                time.sleep(0.1)
+                # Убрали time.sleep(0.1)
             
             for i, (image_url, thumb_url) in enumerate(image_data):
                 result_id = generate_unique_id(f"img_{i+1}")
@@ -568,11 +563,7 @@ def inline_handler(inline_query):
     try:
         if results:
             bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
-            print(f"✅ Отправлено {len(results)} результатов в Telegram")
-            
-            # Выводим все URL для проверки
-            for i, result in enumerate(results):
-                print(f"  URL {i+1}: {result.photo_url}")
+            print(f"✅ Отправлено {len(results)} результатов")
         else:
             bot.answer_inline_query(inline_query.id, [], cache_time=0)
             print("❌ Нет результатов")
