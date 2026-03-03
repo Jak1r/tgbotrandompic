@@ -413,92 +413,119 @@ def inline_handler(inline_query):
     
     print(f"📨 Запрос: '{query_text}' от {user_id}")
     
-    # ===== УМНАЯ ЗАДЕРЖКА (только перед началом) =====
-    if len(query_text) < 2:
-        time.sleep(0.3)
+    # ===== УМНАЯ ЗАДЕРЖКА (только для сложных запросов) =====
+    # Если запрос пустой - моментальный ответ
+    if not query_text:
+        pass  # без задержки
+    # Если запрос очень короткий (1-2 символа) - минимальная задержка
+    elif len(query_text) < 3:
+        time.sleep(0.2)
+    # Для остальных - стандартная задержка
     else:
         hash_input = f"{user_id}_{query_text}".encode()
         hash_value = int(hashlib.md5(hash_input).hexdigest(), 16)
-        delay = 0.5 + (hash_value % 7) / 10  # 0.5-1.2 сек
+        delay = 0.3 + (hash_value % 5) / 10  # 0.3-0.8 сек
         time.sleep(delay)
     
     results = []
 
     try:
         text_to_add = None
-        search_query = query_text.lower()
+        search_query = None
         is_randtext = False
-        phrase_count = 1
-
+        images_count = 1  # по умолчанию 1 картинка
+        
+        # Парсим запрос
+        original_text = query_text
         parts = query_text.lower().split()
-
-        # Проверяем на randtext
-        if parts and parts[0] == 'randtext':
-            is_randtext = True
-            print(f"  → режим randtext")
-            
-            if len(parts) > 1:
-                if parts[1].isdigit():
-                    phrase_count = min(int(parts[1]), 3)
-                    search_query = ' '.join(parts[2:]) if len(parts) > 2 else None
+        
+        # Ищем число в конце (количество картинок)
+        if parts and parts[-1].isdigit():
+            images_count = min(int(parts[-1]), 5)  # максимум 5 картинок
+            # Убираем число из запроса для дальнейшей обработки
+            query_text = ' '.join(parts[:-1])
+            parts = query_text.lower().split()
+            print(f"  → запрошено {images_count} картинок")
+        
+        # Если после удаления числа запрос стал пустым
+        if not query_text:
+            # Просто случайные картинки
+            search_query = None
+            print(f"  → {images_count} случайных картинок")
+        else:
+            # Проверяем на randtext
+            if parts and parts[0] == 'randtext':
+                is_randtext = True
+                print(f"  → режим randtext")
+                
+                if len(parts) > 1:
+                    if parts[1].isdigit():
+                        phrase_count = min(int(parts[1]), 3)
+                        search_query = ' '.join(parts[2:]) if len(parts) > 2 else None
+                    else:
+                        search_query = ' '.join(parts[1:])
                 else:
-                    search_query = ' '.join(parts[1:])
+                    search_query = None
+                
+                # Получаем фразы
+                if phrase_count > 1:
+                    phrases = []
+                    for i in range(phrase_count):
+                        phrase = get_russian_phrase()
+                        phrases.append(phrase)
+                        if i < phrase_count - 1:
+                            time.sleep(0.1)  # минимальная пауза между API
+                    text_to_add = ' | '.join(phrases)
+                else:
+                    text_to_add = get_russian_phrase()
             
-            if phrase_count > 1:
-                phrases = []
-                for i in range(phrase_count):
-                    phrase = get_russian_phrase()
-                    phrases.append(phrase)
-                    # Между запросами к API фраз оставляем небольшую паузу, чтобы не забанили
-                    if i < phrase_count - 1:
-                        time.sleep(0.2)
-                text_to_add = ' | '.join(phrases)
-            else:
-                text_to_add = get_russian_phrase()
-        
-        # Проверяем на категории фраз
-        elif parts and parts[0] in PHRASES:
-            phrase_category = parts[0]
-            text_to_add = get_random_phrase(phrase_category)
-            search_query = ' '.join(parts[1:]) if len(parts) > 1 else None
-            print(f"  → категория: {phrase_category}")
-        
-        # Проверяем на текст в кавычках
-        elif re.match(r'^".+"', query_text):
-            text_match = re.search(r'"([^"]+)"', query_text)
-            if text_match:
-                text_to_add = text_match.group(1)
-                remaining = re.sub(r'"[^"]+"', '', query_text).strip()
-                search_query = remaining if remaining else None
-                print(f"  → текст в кавычках: {text_to_add[:30]}...")
-        
-        # Обычный поиск
-        elif query_text:
-            print(f"  → поиск: {query_text}")
-            search_query = query_text
+            # Проверяем на категории фраз
+            elif parts and parts[0] in PHRASES:
+                phrase_category = parts[0]
+                text_to_add = get_random_phrase(phrase_category)
+                search_query = ' '.join(parts[1:]) if len(parts) > 1 else None
+                print(f"  → категория: {phrase_category}")
+            
+            # Проверяем на текст в кавычках
+            elif re.match(r'^".+"', query_text) or (parts and parts[0].startswith('"')):
+                # Ищем текст в кавычках
+                text_match = re.search(r'"([^"]+)"', original_text)
+                if text_match:
+                    text_to_add = text_match.group(1)
+                    # Убираем кавычки из запроса для поиска
+                    remaining = re.sub(r'"[^"]+"', '', original_text).strip()
+                    # Убираем число, если оно есть (мы его уже обработали)
+                    if remaining and remaining.split() and remaining.split()[-1].isdigit():
+                        remaining = ' '.join(remaining.split()[:-1])
+                    search_query = remaining if remaining else None
+                    print(f"  → текст в кавычках: {text_to_add[:30]}...")
+            
+            # Обычный поиск
+            elif query_text:
+                print(f"  → поиск: {query_text}")
+                search_query = query_text
 
-        # ===== ГЕНЕРАЦИЯ 3 КАРТИНОК (БЕЗ ЗАДЕРЖЕК) =====
+        # ===== ГЕНЕРАЦИЯ НУЖНОГО КОЛИЧЕСТВА КАРТИНОК =====
         if text_to_add or is_randtext:
-            print(f"🖼️ Генерируем 3 картинки с текстом: '{text_to_add[:30]}...'")
+            print(f"🖼️ Генерируем {images_count} картинок с текстом: '{text_to_add[:30]}...'")
             
-            # Быстро собираем 3 URL
+            # Быстро собираем URL
             image_urls = []
             attempts = 0
-            max_attempts = 15
+            max_attempts = images_count * 5  # достаточно попыток
             
-            while len(image_urls) < 3 and attempts < max_attempts:
+            while len(image_urls) < images_count and attempts < max_attempts:
                 image_url, _ = get_random_image(search_query)
                 if image_url and image_url not in image_urls:
                     image_urls.append(image_url)
-                    print(f"  ✅ Найдено {len(image_urls)}/3 URL")
+                    print(f"  ✅ Найдено {len(image_urls)}/{images_count} URL")
                 attempts += 1
-                # Убрали time.sleep(0.1)
             
             if len(image_urls) == 0:
                 print("❌ Не найдено ни одной картинки")
                 return
             
-            # Генерируем все картинки максимально быстро
+            # Генерируем картинки
             for i, image_url in enumerate(image_urls):
                 print(f"  🎨 Генерируем картинку {i+1}/{len(image_urls)}")
                 full = add_text_to_image(image_url, text_to_add)
@@ -524,21 +551,20 @@ def inline_handler(inline_query):
             print(f"✅ Сгенерировано {len(results)} картинок")
 
         else:
-            # Обычные картинки без текста - тоже 3 варианта
-            print(f"🖼️ Генерируем 3 картинки по запросу: '{search_query}'")
+            # Обычные картинки без текста
+            print(f"🖼️ Генерируем {images_count} картинок по запросу: '{search_query or 'случайная'}'")
             
             image_data = []
             attempts = 0
-            max_attempts = 15
+            max_attempts = images_count * 5
             
-            while len(image_data) < 3 and attempts < max_attempts:
+            while len(image_data) < images_count and attempts < max_attempts:
                 image_url, thumb_url = get_random_image(search_query)
                 if image_url and thumb_url:
                     if not any(url == image_url for url, _ in image_data):
                         image_data.append((image_url, thumb_url))
-                        print(f"  ✅ Найдено {len(image_data)}/3 картинок")
+                        print(f"  ✅ Найдено {len(image_data)}/{images_count} картинок")
                 attempts += 1
-                # Убрали time.sleep(0.1)
             
             for i, (image_url, thumb_url) in enumerate(image_data):
                 result_id = generate_unique_id(f"img_{i+1}")
