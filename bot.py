@@ -300,7 +300,7 @@ def inline_handler(inline_query):
         print(f"  🔍 Начинаем генерацию меню...")
         results = []
         
-        # Генерируем ОДНУ базовую картинку для всех текстовых вариантов
+        # Генерируем ОДНУ базовую картинку для всех вариантов
         print(f"  ⏳ Генерируем базовую картинку...")
         base_image_url, base_thumb_url = get_random_image()
         if not base_image_url:
@@ -309,22 +309,20 @@ def inline_handler(inline_query):
         
         print(f"  ✅ Базовая картинка получена: {base_image_url[:50]}...")
         
-        # 1. Случайная картинка (отдельная, для разнообразия)
-        image_url, thumb_url = get_random_image()
-        if image_url and thumb_url:
-            result1 = telebot.types.InlineQueryResultPhoto(
-                id=generate_unique_id("menu_photo"),
-                photo_url=image_url,
-                thumbnail_url=thumb_url,
-                photo_width=1080,
-                photo_height=720,
-                title="🖼️ Случайная картинка",
-                description="Разные фото каждый раз"
-            )
-            results.append(result1)
-            print(f"  ✅ Случайная картинка добавлена")
+        # 1. Базовая картинка БЕЗ текста (просто картинка)
+        result1 = telebot.types.InlineQueryResultPhoto(
+            id=generate_unique_id("menu_photo"),
+            photo_url=base_image_url,
+            thumbnail_url=base_thumb_url or base_image_url,
+            photo_width=1080,
+            photo_height=720,
+            title="🖼️ Базовая картинка",
+            description="Исходное изображение"
+        )
+        results.append(result1)
+        print(f"  ✅ Базовая картинка без текста добавлена")
         
-        # 2. Базовая картинка со случайной фразой (randtext)
+        # 2. Та же базовая картинка со случайной фразой (randtext)
         print(f"  ⏳ Генерируем randtext...")
         random_phrase = get_russian_phrase()
         print(f"  📝 Фраза: {random_phrase[:50]}...")
@@ -382,7 +380,7 @@ def inline_handler(inline_query):
         else:
             print(f"  ⚠️ Нет категорий в PHRASES")
         
-        # 4. Случайный мем
+        # 4. Случайный мем (отдельно)
         print(f"  ⏳ Ищем случайный мем...")
         meme_url, thumb_url = get_random_meme()
         if meme_url and thumb_url:
@@ -456,8 +454,6 @@ def inline_handler(inline_query):
         results.append(result_help)
         
         print(f"📊 Всего результатов: {len(results)}")
-        print(f"  🖼️ Фото: {len([r for r in results if hasattr(r, 'photo_url')])}")
-        print(f"  📝 Текст: {len([r for r in results if hasattr(r, 'input_message_content')])}")
         
         # Отправляем меню
         try:
