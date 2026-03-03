@@ -19,12 +19,16 @@ def load_emojis():
             all_emojis = []
             for category, emojis in data.items():
                 all_emojis.extend(emojis)
+            print(f"✅ Загружено {len(all_emojis)} эмодзи из emojis.json")  # 👈 Добавить эту строку
             return all_emojis
-    except:
+    except Exception as e:
+        print(f"❌ Ошибка загрузки emojis.json: {e}")  # 👈 Добавить эту строку
         pass
+    print("⚠️ Используются запасные эмодзи (10 шт)")  # 👈 Добавить эту строку
     return ["😀", "😂", "😎", "😍", "🥳", "🔥", "✨", "⭐", "🌈", "🍕"]
 
 ALL_EMOJIS = load_emojis()
+print(f"📊 Всего эмодзи доступно: {len(ALL_EMOJIS)}")  # 👈 Эта строка уже есть
 
 # ========== ФРАЗЫ ==========
 def load_phrases():

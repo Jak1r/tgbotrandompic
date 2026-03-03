@@ -100,23 +100,30 @@ def send_photo_with_text(chat_id, text, photo_type='photo', query=None, count=1)
                 if url:
                     if text:
                         full = add_text_to_gif(url, text)
-                    else:
-                        r = requests.get(url, timeout=10)
-                        full = BytesIO(r.content)
-                    
-                    if full:
-                        caption = f"GIF {i+1}" if count > 1 else "Powered by GIPHY"
-                        # Используем send_animation вместо send_document
+                        # Для GIF с текстом сохраняем во временное хранилище
+                        file_id = generate_unique_id("gif_temp")
+                        temp_images[file_id] = (full.getvalue(), time.time())
+                        hostname = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost")
+                        gif_url = f"https://{hostname}/image/{file_id}"
+                        
+                        # Отправляем через URL
                         bot.send_animation(
-                            chat_id, 
-                            full, 
-                            caption=caption,
-                            timeout=30  # Увеличиваем таймаут для больших файлов
+                            chat_id,
+                            gif_url,
+                            caption=f"GIF {i+1}" if count > 1 else "Powered by GIPHY"
+                        )
+                    else:
+                        # Для обычной GIF отправляем напрямую URL
+                        bot.send_animation(
+                            chat_id,
+                            url,
+                            caption=f"GIF {i+1}" if count > 1 else "Powered by GIPHY"
                         )
                 else:
                     bot.send_message(chat_id, "❌ GIF временно недоступны. Попробуйте позже.")
         
         elif photo_type == 'meme':
+            # ... остальной код ...
             for i in range(count):
                 url, thumb = get_random_meme(query)
                 if url:
@@ -302,6 +309,23 @@ def inline_handler(inline_query):
         print(f"  🔍 Начинаем генерацию меню...")
         results = []
         
+                # 👇 ЭМОДЗИ ДНЯ ТЕПЕРЬ ЗДЕСЬ (ПОСЛЕ МЕМА)
+        emoji = get_user_emoji(user_id)
+        emoji_phrase = random.choice(EMOJI_PHRASES).format(emoji=emoji)
+        result5 = telebot.types.InlineQueryResultArticle(
+            id=generate_unique_id("menu_emoji"),
+            title="🎲 Эмодзи дня",
+            description=emoji_phrase,
+            input_message_content=telebot.types.InputTextMessageContent(
+                message_text=emoji_phrase
+            ),
+            thumbnail_url="https://images.unsplash.com/photo-1518548419970-58e3b4079ab2?w=200",
+            thumbnail_width=200,
+            thumbnail_height=133
+        )
+        results.append(result5)
+        print(f"  ✅ Эмодзи дня: {emoji}")
+
         # Генерируем ОДНУ базовую картинку для всех вариантов
         print(f"  ⏳ Генерируем базовую картинку...")
         base_image_url, base_thumb_url = get_random_image()
@@ -382,23 +406,6 @@ def inline_handler(inline_query):
             )
             results.append(result4)
             print(f"  ✅ Мем добавлен")
-
-        # 👇 ЭМОДЗИ ДНЯ ТЕПЕРЬ ЗДЕСЬ (ПОСЛЕ МЕМА)
-        emoji = get_user_emoji(user_id)
-        emoji_phrase = random.choice(EMOJI_PHRASES).format(emoji=emoji)
-        result5 = telebot.types.InlineQueryResultArticle(
-            id=generate_unique_id("menu_emoji"),
-            title="🎲 Эмодзи дня",
-            description=emoji_phrase,
-            input_message_content=telebot.types.InputTextMessageContent(
-                message_text=emoji_phrase
-            ),
-            thumbnail_url="https://images.unsplash.com/photo-1518548419970-58e3b4079ab2?w=200",
-            thumbnail_width=200,
-            thumbnail_height=133
-        )
-        results.append(result5)
-        print(f"  ✅ Эмодзи дня: {emoji}")
         
         # 6. Инструкция
         help_text = (
