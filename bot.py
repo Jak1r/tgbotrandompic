@@ -299,133 +299,186 @@ def inline_handler(inline_query):
         print(f"  → пустой запрос, показываем меню")
         results = []
         
-        # 1. Случайная картинка - сразу генерируем
-        image_url, thumb_url = get_random_image()
-        if image_url and thumb_url:
-            result1 = InlineQueryResultPhoto(
-                id=generate_unique_id("menu_photo"),
-                photo_url=image_url,
-                thumbnail_url=thumb_url,
-                photo_width=1080,
-                photo_height=720,
-                title="🖼️ Случайная картинка",
-                description="Нажми для отправки"
-            )
-            results.append(result1)
-        
-        # 2. Картинка со случайной фразой
-        random_phrase = get_russian_phrase()
-        image_url, thumb_url = get_random_image()
-        if image_url and thumb_url:
-            full = add_text_to_image(image_url, random_phrase)
-            if full:
-                image_id = generate_unique_id("menu_randtext")
-                temp_images[image_id] = (full.getvalue(), time.time())
-                hostname = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost")
-                url = f"https://{hostname}/image/{image_id}"
-                
-                result2 = InlineQueryResultPhoto(
-                    id=image_id,
-                    photo_url=url,
-                    thumbnail_url=url,
-                    photo_width=1080,
-                    photo_height=720,
-                    title="🎲 Случайная фраза",
-                    description=f"Пример: {random_phrase[:50]}..."
-                )
-                results.append(result2)
-        
-        # 3. Случайный мем
-        meme_url, thumb_url = get_random_meme()
-        if meme_url and thumb_url:
-            result3 = InlineQueryResultPhoto(
-                id=generate_unique_id("menu_meme"),
-                photo_url=meme_url,
-                thumbnail_url=thumb_url,
-                photo_width=1080,
-                photo_height=720,
-                title="🎭 Случайный мем",
-                description="Свежий мем для поднятия настроения"
-            )
-            results.append(result3)
-
-        # 4. Эмодзи дня
-        emoji = get_user_emoji(user_id)
-        random_phrase = random.choice(EMOJI_PHRASES).format(emoji=emoji)
-        result4 = InlineQueryResultArticle(
-            id=generate_unique_id("menu_emoji"),
-            title="🎲 Эмодзи дня",
-            description=random_phrase,
-            input_message_content=InputTextMessageContent(
-                message_text=random_phrase
-            )
-        )
-        results.append(result4)
-        
-        # 5. Случайная категория фраз
-        if PHRASES:
-            random_category = random.choice(list(PHRASES.keys()))
-            random_phrase = get_random_phrase(random_category)
+        try:
+            # 1. Случайная картинка
+            print("  ⏳ Генерируем случайную картинку...")
             image_url, thumb_url = get_random_image()
             if image_url and thumb_url:
+                result1 = InlineQueryResultPhoto(
+                    id=generate_unique_id("menu_photo"),
+                    photo_url=image_url,
+                    thumbnail_url=thumb_url,
+                    photo_width=1080,
+                    photo_height=720,
+                    title="🖼️ Случайная картинка",
+                    description="Нажми для отправки"
+                )
+                results.append(result1)
+                print(f"  ✅ Картинка добавлена: {image_url[:50]}...")
+            else:
+                print("  ❌ Не удалось получить картинку")
+            
+            # 2. Картинка со случайной фразой
+            print("  ⏳ Генерируем случайную фразу...")
+            random_phrase = get_russian_phrase()
+            print(f"  ✅ Фраза: {random_phrase[:50]}...")
+            
+            print("  ⏳ Ищем картинку для фразы...")
+            image_url, thumb_url = get_random_image()
+            if image_url and thumb_url:
+                print("  ⏳ Добавляем текст на картинку...")
                 full = add_text_to_image(image_url, random_phrase)
                 if full:
-                    image_id = generate_unique_id("menu_category")
+                    image_id = generate_unique_id("menu_randtext")
                     temp_images[image_id] = (full.getvalue(), time.time())
                     hostname = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost")
                     url = f"https://{hostname}/image/{image_id}"
                     
-                    result5 = InlineQueryResultPhoto(
+                    result2 = InlineQueryResultPhoto(
                         id=image_id,
                         photo_url=url,
                         thumbnail_url=url,
                         photo_width=1080,
                         photo_height=720,
-                        title=f"🎭 Категория {random_category}",
-                        description=f"{random_phrase[:50]}..."
+                        title="🎲 Случайная фраза",
+                        description=f"Пример: {random_phrase[:50]}..."
                     )
-                    results.append(result5)
-        
-        # 6. Инструкция
-        help_text = (
-            "📖 Как пользоваться:\n\n"
-            "Основные команды:\n"
-            "• @randompikcha2_bot - это меню\n"
-            "• @randompikcha2_bot кот - фото по теме\n"
-            "• @randompikcha2_bot 3 - 3 фото на выбор\n\n"
-            "Текст на фото:\n"
-            "• @randompikcha2_bot \"Привет\" - фото с текстом\n"
-            "• @randompikcha2_bot \"Привет\" кот 3 - 3 фото котов с текстом\n\n"
-            "Случайные фразы:\n"
-            "• @randompikcha2_bot randtext - фото с фразой\n\n"
-            "Категории фраз:\n" +
-            '\n'.join([f"• @randompikcha2_bot {cat}" for cat in PHRASES.keys()]) +
-            "\n\nМемы и GIF:\n"
-            "• @randompikcha2_bot meme - случайный мем\n"
-            "• @randompikcha2_bot gif - случайная GIF\n\n"
-            "Эмодзи дня:\n"
-            "• @randompikcha2_bot emoji - твоё эмодзи на сегодня\n\n"
-            "⚡️ Совет: Добавляй число в конце для нескольких вариантов!"
-        )
-        
-        result_help = InlineQueryResultArticle(
-            id=generate_unique_id("menu_help"),
-            title="📖 Инструкция",
-            description="Как пользоваться ботом",
-            input_message_content=InputTextMessageContent(
-                message_text=help_text
+                    results.append(result2)
+                    print(f"  ✅ Картинка с фразой добавлена")
+                else:
+                    print("  ❌ Не удалось добавить текст")
+            else:
+                print("  ❌ Не удалось получить картинку для фразы")
+            
+            # 3. Случайный мем
+            print("  ⏳ Ищем случайный мем...")
+            meme_url, thumb_url = get_random_meme()
+            if meme_url and thumb_url:
+                result3 = InlineQueryResultPhoto(
+                    id=generate_unique_id("menu_meme"),
+                    photo_url=meme_url,
+                    thumbnail_url=thumb_url,
+                    photo_width=1080,
+                    photo_height=720,
+                    title="🎭 Случайный мем",
+                    description="Свежий мем для поднятия настроения"
+                )
+                results.append(result3)
+                print(f"  ✅ Мем добавлен: {meme_url[:50]}...")
+            else:
+                print("  ❌ Не удалось получить мем")
+
+            # 4. Эмодзи дня
+            print("  ⏳ Генерируем эмодзи дня...")
+            emoji = get_user_emoji(user_id)
+            random_phrase = random.choice(EMOJI_PHRASES).format(emoji=emoji)
+            result4 = InlineQueryResultArticle(
+                id=generate_unique_id("menu_emoji"),
+                title="🎲 Эмодзи дня",
+                description=random_phrase,
+                input_message_content=InputTextMessageContent(
+                    message_text=random_phrase
+                )
             )
-        )
-        results.append(result_help)
-        
-        # Отправляем меню
-        try:
-            bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
-            print(f"✅ Отправлено меню из {len(results)} пунктов")
+            results.append(result4)
+            print(f"  ✅ Эмодзи дня: {emoji}")
+            
+            # 5. Случайная категория фраз
+            if PHRASES:
+                print("  ⏳ Выбираем случайную категорию...")
+                random_category = random.choice(list(PHRASES.keys()))
+                random_phrase = get_random_phrase(random_category)
+                print(f"  ✅ Категория: {random_category}, фраза: {random_phrase[:50]}...")
+                
+                print("  ⏳ Ищем картинку для категории...")
+                image_url, thumb_url = get_random_image()
+                if image_url and thumb_url:
+                    print("  ⏳ Добавляем текст на картинку...")
+                    full = add_text_to_image(image_url, random_phrase)
+                    if full:
+                        image_id = generate_unique_id("menu_category")
+                        temp_images[image_id] = (full.getvalue(), time.time())
+                        hostname = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost")
+                        url = f"https://{hostname}/image/{image_id}"
+                        
+                        result5 = InlineQueryResultPhoto(
+                            id=image_id,
+                            photo_url=url,
+                            thumbnail_url=url,
+                            photo_width=1080,
+                            photo_height=720,
+                            title=f"🎭 Категория {random_category}",
+                            description=f"{random_phrase[:50]}..."
+                        )
+                        results.append(result5)
+                        print(f"  ✅ Картинка с категорией добавлена")
+                    else:
+                        print("  ❌ Не удалось добавить текст для категории")
+                else:
+                    print("  ❌ Не удалось получить картинку для категории")
+            
+            # 6. Инструкция
+            help_text = (
+                "📖 Как пользоваться:\n\n"
+                "Основные команды:\n"
+                "• @randompikcha2_bot - это меню\n"
+                "• @randompikcha2_bot кот - фото по теме\n"
+                "• @randompikcha2_bot 3 - 3 фото на выбор\n\n"
+                "Текст на фото:\n"
+                "• @randompikcha2_bot \"Привет\" - фото с текстом\n"
+                "• @randompikcha2_bot \"Привет\" кот 3 - 3 фото котов с текстом\n\n"
+                "Случайные фразы:\n"
+                "• @randompikcha2_bot randtext - фото с фразой\n\n"
+                "Категории фраз:\n" +
+                '\n'.join([f"• @randompikcha2_bot {cat}" for cat in PHRASES.keys()]) +
+                "\n\nМемы и GIF:\n"
+                "• @randompikcha2_bot meme - случайный мем\n"
+                "• @randompikcha2_bot gif - случайная GIF\n\n"
+                "Эмодзи дня:\n"
+                "• @randompikcha2_bot emoji - твоё эмодзи на сегодня\n\n"
+                "⚡️ Совет: Добавляй число в конце для нескольких вариантов!"
+            )
+            
+            result_help = InlineQueryResultArticle(
+                id=generate_unique_id("menu_help"),
+                title="📖 Инструкция",
+                description="Как пользоваться ботом",
+                input_message_content=InputTextMessageContent(
+                    message_text=help_text
+                )
+            )
+            results.append(result_help)
+            
+            print(f"📊 Всего подготовлено результатов: {len(results)}")
+            
+            # Отправляем меню
+            if results:
+                bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
+                print(f"✅ Отправлено меню из {len(results)} пунктов")
+            else:
+                print("❌ Нет результатов для отправки")
+                # Отправляем заглушку
+                bot.answer_inline_query(inline_query.id, [], cache_time=0)
+            
             return
+            
         except Exception as e:
-            print(f"❌ Ошибка отправки меню: {e}")
+            print(f"❌ КРИТИЧЕСКАЯ ОШИБКА в меню: {e}")
             traceback.print_exc()
+            
+            # Отправляем заглушку с ошибкой
+            try:
+                error_result = InlineQueryResultArticle(
+                    id=generate_unique_id("error"),
+                    title="❌ Ошибка",
+                    description="Не удалось загрузить меню",
+                    input_message_content=InputTextMessageContent(
+                        message_text="❌ Произошла ошибка при загрузке меню. Попробуйте позже."
+                    )
+                )
+                bot.answer_inline_query(inline_query.id, [error_result], cache_time=0, is_personal=True)
+            except:
+                pass
             return
 
     elif len(query_text) < 3:
