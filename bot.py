@@ -305,26 +305,19 @@ def inline_handler(inline_query):
             title="🖼️ Случайная картинка",
             description="Просто случайное фото",
             input_message_content=InputTextMessageContent(
-                message_text="🔍 Генерирую случайное фото...\n\nРезультат появится через пару секунд"
-            ),
-            thumbnail_url="https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=200",
-            thumbnail_width=200,
-            thumbnail_height=133
+                message_text="/photo"
+            )
         )
         results.append(result1)
         
         # 2. Картинка со случайной фразой (randtext)
-        random_phrase = get_russian_phrase()
         result2 = InlineQueryResultArticle(
             id=generate_unique_id("menu_randtext"),
             title="🎲 Случайная фраза",
-            description=f"Пример: {random_phrase[:50]}...",
+            description="Фото со случайной фразой",
             input_message_content=InputTextMessageContent(
-                message_text=f"🎲 Случайная фраза: {random_phrase}\n\nИспользуй @randompikcha2_bot randtext чтобы получить ещё"
-            ),
-            thumbnail_url="https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=200",
-            thumbnail_width=200,
-            thumbnail_height=133
+                message_text="/randtext"
+            )
         )
         results.append(result2)
         
@@ -334,26 +327,21 @@ def inline_handler(inline_query):
             title="🎭 Случайный мем",
             description="Свежий мем для поднятия настроения",
             input_message_content=InputTextMessageContent(
-                message_text="🔍 Ищу случайный мем...\n\nРезультат появится через пару секунд"
-            ),
-            thumbnail_url="https://images.unsplash.com/photo-1554050857-c84a8abdb5e2?w=200",
-            thumbnail_width=200,
-            thumbnail_height=133
+                message_text="/meme"
+            )
         )
         results.append(result3)
 
         # 4. Эмодзи дня
         emoji = get_user_emoji(user_id)
+        random_phrase = random.choice(EMOJI_PHRASES).format(emoji=emoji)
         result4 = InlineQueryResultArticle(
             id=generate_unique_id("menu_emoji"),
             title="🎲 Эмодзи дня",
-            description=f"Твоё эмодзи на сегодня: {emoji}",
+            description=random_phrase,
             input_message_content=InputTextMessageContent(
-                message_text=f"🎲 Твоё эмодзи дня - {emoji}"
-            ),
-            thumbnail_url="https://images.unsplash.com/photo-1518548419970-58e3b4079ab2?w=200",
-            thumbnail_width=200,
-            thumbnail_height=133
+                message_text=f"/emoji"
+            )
         )
         results.append(result4)
         
@@ -364,14 +352,11 @@ def inline_handler(inline_query):
             
             result5 = InlineQueryResultArticle(
                 id=generate_unique_id("menu_random_category"),
-                title="🎭 Случайная категория фраз",
-                description=f"[{random_category}] {random_phrase[:50]}...",
+                title=f"🎭 Категория {random_category}",
+                description=f"{random_phrase[:50]}...",
                 input_message_content=InputTextMessageContent(
-                    message_text=f"🎭 Категория «{random_category}»: {random_phrase}\n\nИспользуй @randompikcha2_bot {random_category} чтобы получить ещё из этой категории"
-                ),
-                thumbnail_url="https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=200",
-                thumbnail_width=200,
-                thumbnail_height=133
+                    message_text=f"/{random_category}"
+                )
             )
             results.append(result5)
         
@@ -403,10 +388,7 @@ def inline_handler(inline_query):
             description="Как пользоваться ботом",
             input_message_content=InputTextMessageContent(
                 message_text=help_text
-            ),
-            thumbnail_url="https://images.unsplash.com/photo-1486312338219-ce68d2c6f44d?w=200",
-            thumbnail_width=200,
-            thumbnail_height=133
+            )
         )
         results.append(result_help)
         
