@@ -1,6 +1,6 @@
 import os
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, InlineQueryResultArticle, InputTextMessageContent
 import random
 import requests
 from flask import Flask, request, abort, send_file
@@ -15,6 +15,9 @@ import uuid
 import sys
 import traceback
 import hashlib
+from datetime import datetime, timedelta
+import pytz
+from collections import defaultdict
 
 # ========== ЛОГИРОВАНИЕ ==========
 import logging
@@ -52,6 +55,34 @@ print(f"🔑 Доступно API для фото: {', '.join(available_apis)}")
 if GIPHY_API_KEY:
     print(f"🔑 GIPHY API: доступен (100 запросов/час)")
 
+# ========== ЗАГРУЗКА ЭМОДЗИ ==========
+def load_emojis():
+    """Загружает эмодзи из emojis.json"""
+    try:
+        if os.path.exists('emojis.json'):
+            with open('emojis.json', 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # Объединяем все категории
+            all_emojis = []
+            for category, emojis in data.items():
+                all_emojis.extend(emojis)
+            
+            print(f"✅ Загружено {len(all_emojis)} эмодзи из emojis.json")
+            return all_emojis
+        else:
+            print("❌ Файл emojis.json не найден!")
+            # Базовый набор на случай отсутствия файла
+            return ["😀", "😂", "😎", "😍", "🥳", "🔥", "✨", "⭐", "🌈", "🍕"]
+    except Exception as e:
+        print(f"⚠️ Ошибка загрузки emojis.json: {e}")
+        return ["😀", "😂", "😎", "😍", "🥳", "🔥", "✨", "⭐", "🌈", "🍕"]
+
+# Загружаем эмодзи при старте
+ALL_EMOJIS = load_emojis()
+print(f"📊 Всего эмодзи доступно: {len(ALL_EMOJIS)}")
+# ========== КОНЕЦ ЗАГРУЗКИ ЭМОДЗИ ==========
+
 # Фразы
 def load_phrases():
     try:
@@ -80,6 +111,84 @@ RANDOM_QUERIES = [
     'travel', 'space', 'art', 'technology', 'mountain', 'ocean',
     'forest', 'sunset', 'flowers', 'architecture', 'beach', 'winter'
 ]
+
+# ========== ЭМОДЗИ ДНЯ ==========
+# Веселые фразы для эмодзи дня
+EMOJI_PHRASES = [
+    "🎲 Твоё эмодзи дня - {emoji}",
+    "✨ Случайное эмодзи дня - {emoji}",
+    "🎯 Сегодня тебе выпало: {emoji}",
+    "🤣 Ахахахаха, твоё эмодзи дня - {emoji}, жесть ты лох!",
+    "😎 Красавчик, твоё эмодзи дня - {emoji}",
+    "🎪 Барабанная дробь... Твоё эмодзи дня - {emoji}!",
+    "💫 Вселенная выбрала для тебя: {emoji}",
+    "🎰 Джекпот! Твоё эмодзи дня - {emoji}",
+    "🤔 Хмм, думаю тебе подойдёт... {emoji}",
+    "🎭 Сегодня ты в образе эмодзи {emoji}",
+    "🍀 Тебе сегодня везёт! Твоё эмодзи - {emoji}",
+    "⭐ Звезды говорят, твоё эмодзи дня - {emoji}",
+    "🎲 Крутится барабан... И твоё эмодзи дня - {emoji}!",
+    "😜 Оба-на, сегодня ты - {emoji}!",
+    "🔥 Хот-хот, твоё эмодзи дня - {emoji}!",
+    "💪 С таким эмодзи ты горы свернёшь: {emoji}",
+    "🌈 Радужного тебе настроения! Твой эмодзи - {emoji}",
+    "🎵 Тра-ля-ля, твоё эмодзи сегодня - {emoji}",
+    "🦄 Ой, смотри какое эмодзи выпало: {emoji}",
+    "🍕 Вкусняшка дня - эмодзи {emoji}"
+]
+
+# Хранилище эмодзи пользователей: {user_id: (emoji, timestamp)}
+user_emojis = {}
+
+def get_moscow_midnight_timestamp():
+    """Возвращает timestamp следующей полуночи по Москве"""
+    tz = pytz.timezone('Europe/Moscow')
+    now = datetime.now(tz)
+    # Следующая полночь
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+    return midnight.timestamp()
+
+def get_user_emoji(user_id):
+    """
+    Возвращает эмодзи для пользователя на сегодня.
+    Если эмодзи устарело (прошла полночь), генерирует новое.
+    """
+    current_time = time.time()
+    moscow_midnight = get_moscow_midnight_timestamp()
+    
+    # Проверяем, есть ли у пользователя эмодзи и не устарело ли оно
+    if user_id in user_emojis:
+        emoji, timestamp = user_emojis[user_id]
+        # Если эмодзи еще актуально (до сегодняшней полуночи)
+        if timestamp >= current_time and timestamp < moscow_midnight:
+            return emoji, False  # False = не новое
+    
+    # Генерируем новое эмодзи
+    new_emoji = random.choice(ALL_EMOJIS)
+    # Устанавливаем время окончания действия (сегодняшняя полночь)
+    user_emojis[user_id] = (new_emoji, moscow_midnight)
+    
+    return new_emoji, True  # True = новое
+
+def cleanup_old_emojis():
+    """Очищает устаревшие эмодзи (после полуночи)"""
+    while True:
+        time.sleep(3600)  # Проверка каждый час
+        current_time = time.time()
+        to_delete = []
+        for user_id, (_, expiry) in user_emojis.items():
+            if current_time > expiry:
+                to_delete.append(user_id)
+        
+        for user_id in to_delete:
+            del user_emojis[user_id]
+        
+        if to_delete:
+            print(f"🧹 Очищено {len(to_delete)} устаревших эмодзи")
+
+# Запускаем очистку в отдельном потоке
+threading.Thread(target=cleanup_old_emojis, daemon=True).start()
+# ========== КОНЕЦ ЭМОДЗИ ДНЯ ==========
 
 # ========== ФУНКЦИИ ДЛЯ GIF (ТОЛЬКО GIPHY) ==========
 def get_random_gif(query=None):
@@ -117,19 +226,16 @@ def get_random_gif(query=None):
         return None
 
 def add_text_to_gif(gif_url, text):
-    """Накладывает текст на каждый кадр GIF-ки (алгоритм как для фото)"""
+    """Накладывает текст на каждый кадр GIF-ки"""
     try:
         print(f"🎨 Накладываем текст на GIF: '{text[:30]}...'")
         
-        # Скачиваем GIF
         r = requests.get(gif_url, timeout=10)
         gif = Image.open(BytesIO(r.content))
         
-        # Получаем размер первого кадра для расчета шрифта
         first_frame = gif.convert('RGB')
         frame_width, frame_height = first_frame.size
         
-        # Загружаем шрифт для измерения
         font_paths = [
             '/app/fonts/Impact.ttf',
             '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
@@ -147,29 +253,22 @@ def add_text_to_gif(gif_url, text):
         if base_font is None:
             base_font = ImageFont.load_default()
         
-        # ===== ТОТ ЖЕ АЛГОРИТМ ЧТО И ДЛЯ ФОТО =====
+        # ===== МАСШТАБИРОВАНИЕ ТЕКСТА =====
         side_margin = min(max(int(frame_width * 0.05), 20), 60)
         target_width = frame_width - (side_margin * 2)
         safety_margin = 0.93
         
-        # Получаем уникальные символы для измерения
         unique_chars = ''.join(set(text.replace(' ', ''))) or "А"
         char_width_target = (target_width / len(text)) * safety_margin
         
-        # Тестируем размеры шрифта (от большого к малому)
         test_sizes = [200, 180, 160, 140, 120, 110, 100, 95, 90, 85, 80, 75, 70, 68, 66, 64, 62, 60, 58, 56, 54, 52, 50, 48, 46, 44, 42, 40, 38, 36, 34, 32, 30, 28, 26, 24, 22, 20]
         
         optimal_font_size = 20
-        
-        print(f"📏 Подбираем размер шрифта (цель: {char_width_target:.1f}px на символ)")
-        
-        # Создаем временный draw объект для измерения
         temp_draw = ImageDraw.Draw(first_frame)
         
         for size in test_sizes:
             font = base_font.font_variant(size=size)
             
-            # Измеряем среднюю ширину уникальных символов
             total_width = 0
             for char in unique_chars[:5]:
                 bbox = temp_draw.textbbox((0, 0), char, font=font)
@@ -177,16 +276,13 @@ def add_text_to_gif(gif_url, text):
             
             avg_char_width = total_width / min(len(unique_chars), 5)
             
-            print(f"  Размер {size}px → ширина символа: {avg_char_width:.1f}px")
-            
             if avg_char_width <= char_width_target:
                 optimal_font_size = size
-                print(f"  ✅ Выбран размер {size}px")
                 break
         
         font = base_font.font_variant(size=optimal_font_size)
         
-        # Разбиваем текст на строки
+        # Разбиваем на строки
         words = text.split()
         lines = []
         current_line = []
@@ -204,42 +300,7 @@ def add_text_to_gif(gif_url, text):
         if current_line:
             lines.append(' '.join(current_line))
         
-        # Если получилось слишком много строк, уменьшаем шрифт
-        if len(lines) > 3:
-            print(f"⚠️ Получилось {len(lines)} строк, ищем меньший размер...")
-            current_index = test_sizes.index(optimal_font_size) if optimal_font_size in test_sizes else -1
-            
-            for next_index in range(current_index + 1, len(test_sizes)):
-                next_size = test_sizes[next_index]
-                test_font = base_font.font_variant(size=next_size)
-                
-                # Переразбиваем с новым размером
-                test_lines = []
-                test_current = []
-                
-                for word in words:
-                    test_line = ' '.join(test_current + [word])
-                    bbox = temp_draw.textbbox((0, 0), test_line, font=test_font)
-                    if bbox[2] - bbox[0] <= target_width:
-                        test_current.append(word)
-                    else:
-                        if test_current:
-                            test_lines.append(' '.join(test_current))
-                        test_current = [word]
-                
-                if test_current:
-                    test_lines.append(' '.join(test_current))
-                
-                if len(test_lines) <= 3:
-                    optimal_font_size = next_size
-                    font = test_font
-                    lines = test_lines
-                    print(f"  ✅ Выбран размер {next_size}px ({len(lines)} строк)")
-                    break
-        
-        print(f"📏 Итоговый размер шрифта: {optimal_font_size}px, строк: {len(lines)}")
-        
-        # Обрабатываем каждый кадр
+        # Обрабатываем кадры
         durations = []
         frames = []
         
@@ -249,12 +310,10 @@ def add_text_to_gif(gif_url, text):
             except:
                 durations.append(50)
             
-            # Конвертируем в RGB для рисования
             frame_rgb = frame.convert('RGB')
             frame_copy = frame_rgb.copy()
             draw = ImageDraw.Draw(frame_copy)
             
-            # Рисуем текст снизу вверх
             y_offset = frame_copy.height - 60
             outline_range = max(2, int(optimal_font_size * 0.03))
             
@@ -265,19 +324,16 @@ def add_text_to_gif(gif_url, text):
                 x = (frame_copy.width - tw) // 2
                 y = y_offset - th
                 
-                # Черная обводка
                 for dx in range(-outline_range, outline_range + 1):
                     for dy in range(-outline_range, outline_range + 1):
                         if dx != 0 or dy != 0:
                             draw.text((x + dx, y + dy), line, font=font, fill='black')
                 
-                # Белый текст
                 draw.text((x, y), line, font=font, fill='white')
                 y_offset = y - int(optimal_font_size * 0.2)
             
             frames.append(frame_copy)
         
-        # Сохраняем GIF
         output = BytesIO()
         frames[0].save(
             output,
@@ -290,7 +346,7 @@ def add_text_to_gif(gif_url, text):
         )
         output.seek(0)
         
-        print(f"✅ GIF готова, кадров: {len(frames)}, шрифт: {optimal_font_size}px")
+        print(f"✅ GIF готова, шрифт: {optimal_font_size}px")
         return output
         
     except Exception as e:
@@ -585,6 +641,9 @@ def start_command(message):
         '🎲 Случайные фразы:\n'
         '• `@randompikcha2_bot randtext` — картинка + осмысленная фраза\n'
         '• `@randompikcha2_bot randtext природа 2` — 2 картинки природы с фразой\n\n'
+        '🎲 Эмодзи дня:\n'
+        '• `@randompikcha2_bot emoji` — твоё персональное эмодзи на сегодня\n'
+        '  (обновляется каждый день в 00:00 по Москве)\n\n'
     )
     
     if gif_help:
@@ -656,7 +715,36 @@ def inline_handler(inline_query):
             parts = query_text.lower().split()
             print(f"  → запрошено {images_count} картинок")
         
-        if not query_text:
+        # Эмодзи дня
+        if parts and parts[0] == 'emoji':
+            print(f"  → команда emoji")
+            
+            # Получаем эмодзи для пользователя
+            emoji, is_new = get_user_emoji(user_id)
+            
+            # Выбираем случайную фразу
+            phrase = random.choice(EMOJI_PHRASES).format(emoji=emoji)
+            
+            # Если эмодзи новое, добавляем приписку
+            if is_new:
+                phrase += " 🌟 (свежее!)"
+            
+            # Создаем результат
+            result_id = generate_unique_id("emoji")
+            
+            result = InlineQueryResultArticle(
+                id=result_id,
+                title=f"🎲 Эмодзи дня {emoji}",
+                description=phrase,
+                input_message_content=InputTextMessageContent(
+                    message_text=phrase,
+                    parse_mode='HTML'
+                )
+            )
+            results.append(result)
+            print(f"  → эмодзи дня: {emoji} для пользователя {user_id}")
+        
+        elif not query_text:
             search_query = None
             print(f"  → {images_count} случайных картинок")
         else:
@@ -669,15 +757,12 @@ def inline_handler(inline_query):
                 is_gif = True
                 print(f"  → режим GIF")
                 
-                # Если после gif ничего нет
                 if len(parts) == 1:
                     search_query = None
                     text_to_add = None
                     print(f"  → просто GIF без текста")
-                
-                # Проверяем разные варианты
                 else:
-                    # Текст в кавычках: gif "привет"
+                    # Текст в кавычках
                     if re.match(r'^".+"', ' '.join(parts[1:])):
                         text_match = re.search(r'"([^"]+)"', original_text)
                         if text_match:
@@ -688,43 +773,40 @@ def inline_handler(inline_query):
                             search_query = remaining if remaining else None
                             print(f"  → текст на GIF: {text_to_add[:30]}...")
                     
-                    # randtext: gif randtext
+                    # randtext
                     elif parts[1] == 'randtext':
                         is_randtext = True
                         text_to_add = get_russian_phrase()
                         search_query = ' '.join(parts[2:]) if len(parts) > 2 else None
                         print(f"  → фраза на GIF: {text_to_add[:30]}...")
                     
-                    # Категории фраз: gif papich, gif tehnik
+                    # Категории фраз
                     elif parts[1] in PHRASES:
                         phrase_category = parts[1]
                         text_to_add = get_random_phrase(phrase_category)
                         search_query = ' '.join(parts[2:]) if len(parts) > 2 else None
                         print(f"  → категория на GIF: {phrase_category} -> '{text_to_add[:30]}...'")
                     
-                    # Обычный поиск: gif кот
+                    # Обычный поиск
                     else:
                         search_query = ' '.join(parts[1:])
                         text_to_add = None
                         print(f"  → поиск GIF по тегу: {search_query}")
             
-            # ===== ФОТО (не GIF) =====
+            # ФОТО
             else:
-                # randtext для фото
                 if parts and parts[0] == 'randtext':
                     is_randtext = True
                     print(f"  → режим randtext для фото")
                     text_to_add = get_russian_phrase()
                     search_query = ' '.join(parts[1:]) if len(parts) > 1 else None
                 
-                # Категории фраз для фото
                 elif parts and parts[0] in PHRASES:
                     phrase_category = parts[0]
                     text_to_add = get_random_phrase(phrase_category)
                     search_query = ' '.join(parts[1:]) if len(parts) > 1 else None
                     print(f"  → категория фото: {phrase_category} -> '{text_to_add[:30]}...'")
                 
-                # Текст в кавычках для фото
                 elif re.match(r'^".+"', query_text) or (parts and parts[0].startswith('"')):
                     text_match = re.search(r'"([^"]+)"', original_text)
                     if text_match:
@@ -735,7 +817,6 @@ def inline_handler(inline_query):
                         search_query = remaining if remaining else None
                         print(f"  → текст на фото: {text_to_add[:30]}...")
                 
-                # Обычный поиск для фото
                 elif query_text:
                     print(f"  → поиск фото: {query_text}")
                     search_query = query_text
@@ -925,10 +1006,12 @@ def webhook():
 def index():
     hostname = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost")
     gif_status = "✅ GIPHY" if GIPHY_API_KEY else "❌ Не настроен"
+    emoji_count = len(ALL_EMOJIS)
     return (
         f'🤖 Bot работает на Railway<br>'
         f'📸 API фото: {", ".join(available_apis)}<br>'
         f'🎬 GIF API: {gif_status}<br>'
+        f'🎲 Эмодзи в базе: {emoji_count}<br>'
         f'📦 Файлов в памяти: {len(temp_images)}<br>'
         f'📝 Фраз: {sum(len(v) for v in PHRASES.values())}<br>'
         f'🌐 Домен: https://{hostname}'
