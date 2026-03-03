@@ -666,13 +666,13 @@ def inline_handler(inline_query):
                     url = f"https://{hostname}/image/{gif_id}"
                     
                     result = telebot.types.InlineQueryResultGif(
-                        id=gif_id,
-                        gif_url=url,
-                        thumb_url=url,
-                        gif_width=480,
-                        gif_height=360,
-                        title=f"GIF {i+1}" + (f": {text_to_add[:20]}..." if text_to_add else ""),
-                        caption=text_to_add if text_to_add else None
+                      id=gif_id,
+                      gif_url=url,
+                     thumbnail_url=url,  # ✅ ПРАВИЛЬНО: thumbnail_url
+                      gif_width=480,
+                      gif_height=360,
+                      title=f"GIF {i+1}" + (f": {text_to_add[:20]}..." if text_to_add else ""),
+                      caption=text_to_add if text_to_add else None
                     )
                     results.append(result)
             
