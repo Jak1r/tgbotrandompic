@@ -299,38 +299,55 @@ def inline_handler(inline_query):
         print(f"  → пустой запрос, показываем меню")
         results = []
         
-        # 1. Случайная картинка
-        result1 = InlineQueryResultArticle(
-            id=generate_unique_id("menu_photo"),
-            title="🖼️ Случайная картинка",
-            description="Просто случайное фото",
-            input_message_content=InputTextMessageContent(
-                message_text="/photo"
+        # 1. Случайная картинка - сразу генерируем
+        image_url, thumb_url = get_random_image()
+        if image_url and thumb_url:
+            result1 = InlineQueryResultPhoto(
+                id=generate_unique_id("menu_photo"),
+                photo_url=image_url,
+                thumbnail_url=thumb_url,
+                photo_width=1080,
+                photo_height=720,
+                title="🖼️ Случайная картинка",
+                description="Нажми для отправки"
             )
-        )
-        results.append(result1)
+            results.append(result1)
         
-        # 2. Картинка со случайной фразой (randtext)
-        result2 = InlineQueryResultArticle(
-            id=generate_unique_id("menu_randtext"),
-            title="🎲 Случайная фраза",
-            description="Фото со случайной фразой",
-            input_message_content=InputTextMessageContent(
-                message_text="/randtext"
-            )
-        )
-        results.append(result2)
+        # 2. Картинка со случайной фразой
+        random_phrase = get_russian_phrase()
+        image_url, thumb_url = get_random_image()
+        if image_url and thumb_url:
+            full = add_text_to_image(image_url, random_phrase)
+            if full:
+                image_id = generate_unique_id("menu_randtext")
+                temp_images[image_id] = (full.getvalue(), time.time())
+                hostname = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost")
+                url = f"https://{hostname}/image/{image_id}"
+                
+                result2 = InlineQueryResultPhoto(
+                    id=image_id,
+                    photo_url=url,
+                    thumbnail_url=url,
+                    photo_width=1080,
+                    photo_height=720,
+                    title="🎲 Случайная фраза",
+                    description=f"Пример: {random_phrase[:50]}..."
+                )
+                results.append(result2)
         
         # 3. Случайный мем
-        result3 = InlineQueryResultArticle(
-            id=generate_unique_id("menu_meme"),
-            title="🎭 Случайный мем",
-            description="Свежий мем для поднятия настроения",
-            input_message_content=InputTextMessageContent(
-                message_text="/meme"
+        meme_url, thumb_url = get_random_meme()
+        if meme_url and thumb_url:
+            result3 = InlineQueryResultPhoto(
+                id=generate_unique_id("menu_meme"),
+                photo_url=meme_url,
+                thumbnail_url=thumb_url,
+                photo_width=1080,
+                photo_height=720,
+                title="🎭 Случайный мем",
+                description="Свежий мем для поднятия настроения"
             )
-        )
-        results.append(result3)
+            results.append(result3)
 
         # 4. Эмодзи дня
         emoji = get_user_emoji(user_id)
@@ -340,7 +357,7 @@ def inline_handler(inline_query):
             title="🎲 Эмодзи дня",
             description=random_phrase,
             input_message_content=InputTextMessageContent(
-                message_text=f"/emoji"
+                message_text=random_phrase
             )
         )
         results.append(result4)
@@ -349,16 +366,25 @@ def inline_handler(inline_query):
         if PHRASES:
             random_category = random.choice(list(PHRASES.keys()))
             random_phrase = get_random_phrase(random_category)
-            
-            result5 = InlineQueryResultArticle(
-                id=generate_unique_id("menu_random_category"),
-                title=f"🎭 Категория {random_category}",
-                description=f"{random_phrase[:50]}...",
-                input_message_content=InputTextMessageContent(
-                    message_text=f"/{random_category}"
-                )
-            )
-            results.append(result5)
+            image_url, thumb_url = get_random_image()
+            if image_url and thumb_url:
+                full = add_text_to_image(image_url, random_phrase)
+                if full:
+                    image_id = generate_unique_id("menu_category")
+                    temp_images[image_id] = (full.getvalue(), time.time())
+                    hostname = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost")
+                    url = f"https://{hostname}/image/{image_id}"
+                    
+                    result5 = InlineQueryResultPhoto(
+                        id=image_id,
+                        photo_url=url,
+                        thumbnail_url=url,
+                        photo_width=1080,
+                        photo_height=720,
+                        title=f"🎭 Категория {random_category}",
+                        description=f"{random_phrase[:50]}..."
+                    )
+                    results.append(result5)
         
         # 6. Инструкция
         help_text = (
