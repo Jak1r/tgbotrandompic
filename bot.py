@@ -297,12 +297,15 @@ def inline_handler(inline_query):
     # Умная задержка
     if not query_text:
         print(f"  → пустой запрос, показываем меню")
+        print(f"  🔍 Начинаем генерацию меню...")
         results = []
         
-        # Базовая картинка для всех вариантов с текстом
-        base_image_url = "https://images.unsplash.com/photo-1541701494587-c4815857b4c0?w=400"  # Красивая абстракция
+        # Выбираем случайную базовую картинку
+        base_image_url = random.choice(BASE_IMAGES)
+        print(f"  🖼️ Базовая картинка: {base_image_url[:50]}...")
         
-        # 1. Случайная картинка (своя уникальная)
+        # 1. Случайная картинка
+        print(f"  ⏳ Генерируем случайную картинку...")
         image_url, thumb_url = get_random_image()
         if image_url and thumb_url:
             result1 = telebot.types.InlineQueryResultPhoto(
@@ -311,13 +314,20 @@ def inline_handler(inline_query):
                 thumbnail_url=thumb_url,
                 photo_width=1080,
                 photo_height=720,
-                title="🖼️  Случайная картинка",
-                description="Просто красивое фото"
+                title="🖼️ Случайная картинка",
+                description="Разные фото каждый раз"
             )
             results.append(result1)
+            print(f"  ✅ Случайная картинка добавлена")
+        else:
+            print(f"  ❌ Не удалось получить случайную картинку")
         
-        # 2. Базовая картинка со случайной фразой
+        # 2. Базовая картинка со случайной фразой (randtext)
+        print(f"  ⏳ Генерируем randtext...")
         random_phrase = get_russian_phrase()
+        print(f"  📝 Фраза: {random_phrase[:50]}...")
+        
+        print(f"  ⏳ Добавляем текст на базовую картинку...")
         full = add_text_to_image(base_image_url, random_phrase)
         if full:
             image_id = generate_unique_id("menu_randtext")
@@ -331,15 +341,22 @@ def inline_handler(inline_query):
                 thumbnail_url=url,
                 photo_width=1080,
                 photo_height=720,
-                title="🎲  Случайная фраза",
+                title="🎲 Случайная фраза",
                 description=f"«{random_phrase[:40]}...»"
             )
             results.append(result2)
+            print(f"  ✅ Randtext добавлен, URL: {url}")
+        else:
+            print(f"  ❌ Ошибка: add_text_to_image вернул None")
         
         # 3. Базовая картинка со случайной категорией
         if PHRASES:
+            print(f"  ⏳ Генерируем случайную категорию...")
             random_category = random.choice(list(PHRASES.keys()))
             random_phrase = get_random_phrase(random_category)
+            print(f"  📝 Категория: {random_category}, фраза: {random_phrase[:50]}...")
+            
+            print(f"  ⏳ Добавляем текст на базовую картинку...")
             full = add_text_to_image(base_image_url, random_phrase)
             if full:
                 image_id = generate_unique_id("menu_category")
@@ -353,12 +370,18 @@ def inline_handler(inline_query):
                     thumbnail_url=url,
                     photo_width=1080,
                     photo_height=720,
-                    title=f"🎭  {random_category.capitalize()}",
+                    title=f"🎭 {random_category.capitalize()}",
                     description=f"«{random_phrase[:40]}...»"
                 )
                 results.append(result3)
+                print(f"  ✅ Категория {random_category} добавлена, URL: {url}")
+            else:
+                print(f"  ❌ Ошибка: add_text_to_image вернул None для категории")
+        else:
+            print(f"  ⚠️ Нет категорий в PHRASES")
         
-        # 4. Случайный мем (свой уникальный)
+        # 4. Случайный мем
+        print(f"  ⏳ Ищем случайный мем...")
         meme_url, thumb_url = get_random_meme()
         if meme_url and thumb_url:
             result4 = telebot.types.InlineQueryResultPhoto(
@@ -367,17 +390,21 @@ def inline_handler(inline_query):
                 thumbnail_url=thumb_url,
                 photo_width=1080,
                 photo_height=720,
-                title="😂  Случайный мем",
+                title="😂 Случайный мем",
                 description="Поржать на сегодня"
             )
             results.append(result4)
+            print(f"  ✅ Мем добавлен")
+        else:
+            print(f"  ❌ Не удалось получить мем")
 
-        # 5. Эмодзи дня (текст)
+        # 5. Эмодзи дня
+        print(f"  ⏳ Генерируем эмодзи дня...")
         emoji = get_user_emoji(user_id)
         emoji_phrase = random.choice(EMOJI_PHRASES).format(emoji=emoji)
         result5 = telebot.types.InlineQueryResultArticle(
             id=generate_unique_id("menu_emoji"),
-            title="🎲  Эмодзи дня",
+            title="🎲 Эмодзи дня",
             description=emoji_phrase,
             input_message_content=telebot.types.InputTextMessageContent(
                 message_text=emoji_phrase
@@ -387,8 +414,10 @@ def inline_handler(inline_query):
             thumbnail_height=133
         )
         results.append(result5)
+        print(f"  ✅ Эмодзи дня: {emoji}")
         
         # 6. Инструкция
+        print(f"  ⏳ Добавляем инструкцию...")
         help_text = (
             "📖 **Как пользоваться:**\n\n"
             "**Основные команды:**\n"
@@ -412,7 +441,7 @@ def inline_handler(inline_query):
         
         result_help = telebot.types.InlineQueryResultArticle(
             id=generate_unique_id("menu_help"),
-            title="📖  Инструкция",
+            title="📖 Инструкция",
             description="Как пользоваться ботом",
             input_message_content=telebot.types.InputTextMessageContent(
                 message_text=help_text,
@@ -423,6 +452,10 @@ def inline_handler(inline_query):
             thumbnail_height=133
         )
         results.append(result_help)
+        
+        print(f"📊 Всего результатов: {len(results)}")
+        print(f"  🖼️ Фото: {len([r for r in results if r.type == 'photo'])}")
+        print(f"  📝 Текст: {len([r for r in results if r.type == 'article'])}")
         
         # Отправляем меню
         try:
