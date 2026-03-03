@@ -254,7 +254,7 @@ def get_random_image(custom_query=None):
     print(f"Все API не дали результат для '{query}'")
     return None, None
 
-# ========== ПОЛНАЯ ВЕРСИЯ С АВТОМАСШТАБИРОВАНИЕМ ==========
+# ========== ИСПРАВЛЕННАЯ ВЕРСИЯ С АВТОМАСШТАБИРОВАНИЕМ ==========
 def add_text_to_image(image_url, text):
     try:
         print(f"🔥 add_text_to_image ВЫЗВАНА с текстом: '{text}'")
@@ -291,28 +291,34 @@ def add_text_to_image(image_url, text):
             base_font = ImageFont.load_default()
             print("⚠️ Используем дефолтный шрифт")
         
-        # ===== АВТОМАСШТАБИРОВАНИЕ =====
+        # ===== ИСПРАВЛЕННОЕ АВТОМАСШТАБИРОВАНИЕ =====
         target_width = img.width - 40  # отступы по краям
         words = text.split()
         
-        # Начинаем с большого шрифта и уменьшаем
-        font_size = int(img.height * 0.15)  # 15% от высоты
+        # Начинаем с БОЛЬШОГО шрифта и УМЕНЬШАЕМ пока не поместится
+        max_font_size = int(img.height * 0.15)  # 15% от высоты
         min_font_size = 20
-        optimal_font_size = font_size
+        current_size = max_font_size
         
-        print(f"🔍 Подбираем размер шрифта от {min_font_size} до {font_size}px")
+        print(f"🔍 Начинаем подбор с {current_size}px, уменьшаем до {min_font_size}px")
         
-        while font_size >= min_font_size:
-            font = base_font.font_variant(size=font_size)
+        optimal_font_size = min_font_size
+        optimal_lines = []
+        
+        while current_size >= min_font_size:
+            font = base_font.font_variant(size=current_size)
             
-            # Разбиваем на строки
+            # Разбиваем на строки с текущим размером шрифта
             lines = []
             current_line = []
             
             for word in words:
                 test_line = ' '.join(current_line + [word])
+                # ВАЖНО: используем текущий шрифт для измерения
                 bbox = draw.textbbox((0, 0), test_line, font=font)
-                if bbox[2] - bbox[0] <= target_width:
+                text_width = bbox[2] - bbox[0]
+                
+                if text_width <= target_width:
                     current_line.append(word)
                 else:
                     if current_line:
@@ -322,36 +328,47 @@ def add_text_to_image(image_url, text):
             if current_line:
                 lines.append(' '.join(current_line))
             
-            # Если помещается в 3 строки или меньше - подходит
+            print(f"  Размер {current_size}px → {len(lines)} строк")
+            
+            # Проверяем, помещается ли текст (не больше 3 строк)
             if len(lines) <= 3:
-                optimal_font_size = font_size
-                print(f"✅ Подобран размер: {optimal_font_size}px, строк: {len(lines)}")
+                optimal_font_size = current_size
+                optimal_lines = lines
+                print(f"✅ Подходит! Размер: {current_size}px, строк: {len(lines)}")
                 break
             
             # Уменьшаем шрифт на 10%
-            font_size = int(font_size * 0.9)
+            current_size = int(current_size * 0.9)
         
-        # Финальный шрифт
+        # Если не нашли подходящий, используем минимальный
+        if not optimal_lines:
+            print(f"⚠️ Используем минимальный размер {min_font_size}px")
+            optimal_font_size = min_font_size
+            font = base_font.font_variant(size=optimal_font_size)
+            
+            # Финальное разбиение
+            optimal_lines = []
+            current_line = []
+            
+            for word in words:
+                test_line = ' '.join(current_line + [word])
+                bbox = draw.textbbox((0, 0), test_line, font=font)
+                if bbox[2] - bbox[0] <= target_width:
+                    current_line.append(word)
+                else:
+                    if current_line:
+                        optimal_lines.append(' '.join(current_line))
+                    current_line = [word]
+            
+            if current_line:
+                optimal_lines.append(' '.join(current_line))
+        
+        print(f"📝 Финальный размер: {optimal_font_size}px, строк: {len(optimal_lines)}")
+        for i, line in enumerate(optimal_lines, 1):
+            print(f"  Строка {i}: '{line}'")
+        
+        # Создаем финальный шрифт
         font = base_font.font_variant(size=optimal_font_size)
-        
-        # Финальное разбиение на строки
-        lines = []
-        current_line = []
-        
-        for word in words:
-            test_line = ' '.join(current_line + [word])
-            bbox = draw.textbbox((0, 0), test_line, font=font)
-            if bbox[2] - bbox[0] <= target_width:
-                current_line.append(word)
-            else:
-                if current_line:
-                    lines.append(' '.join(current_line))
-                current_line = [word]
-        
-        if current_line:
-            lines.append(' '.join(current_line))
-        
-        print(f"📝 Финальное разбиение: {len(lines)} строк")
         
         # Рисуем текст снизу вверх
         y_offset = img.height - 60
@@ -360,7 +377,7 @@ def add_text_to_image(image_url, text):
         outline_range = max(2, int(optimal_font_size * 0.03))
         print(f"✏️ Толщина обводки: {outline_range}px")
         
-        for line in reversed(lines):
+        for line in reversed(optimal_lines):
             bbox = draw.textbbox((0, 0), line, font=font)
             tw = bbox[2] - bbox[0]
             th = bbox[3] - bbox[1]
@@ -389,7 +406,7 @@ def add_text_to_image(image_url, text):
         print(f"❌ ОШИБКА: {e}")
         traceback.print_exc()
         return None
-# ========== КОНЕЦ ПОЛНОЙ ВЕРСИИ ==========
+# ========== КОНЕЦ ИСПРАВЛЕННОЙ ВЕРСИИ ==========
 
 @bot.message_handler(commands=['start', 'help'])
 def start_command(message):
