@@ -300,12 +300,16 @@ def inline_handler(inline_query):
         print(f"  🔍 Начинаем генерацию меню...")
         results = []
         
-        # Выбираем случайную базовую картинку
-        base_image_url = random.choice(BASE_IMAGES)
-        print(f"  🖼️ Базовая картинка: {base_image_url[:50]}...")
+        # Генерируем ОДНУ базовую картинку для всех текстовых вариантов
+        print(f"  ⏳ Генерируем базовую картинку...")
+        base_image_url, base_thumb_url = get_random_image()
+        if not base_image_url:
+            print(f"  ❌ Не удалось получить базовую картинку")
+            return
         
-        # 1. Случайная картинка
-        print(f"  ⏳ Генерируем случайную картинку...")
+        print(f"  ✅ Базовая картинка получена: {base_image_url[:50]}...")
+        
+        # 1. Случайная картинка (отдельная, для разнообразия)
         image_url, thumb_url = get_random_image()
         if image_url and thumb_url:
             result1 = telebot.types.InlineQueryResultPhoto(
@@ -319,8 +323,6 @@ def inline_handler(inline_query):
             )
             results.append(result1)
             print(f"  ✅ Случайная картинка добавлена")
-        else:
-            print(f"  ❌ Не удалось получить случайную картинку")
         
         # 2. Базовая картинка со случайной фразой (randtext)
         print(f"  ⏳ Генерируем randtext...")
@@ -345,18 +347,18 @@ def inline_handler(inline_query):
                 description=f"«{random_phrase[:40]}...»"
             )
             results.append(result2)
-            print(f"  ✅ Randtext добавлен, URL: {url}")
+            print(f"  ✅ Randtext добавлен")
         else:
             print(f"  ❌ Ошибка: add_text_to_image вернул None")
         
-        # 3. Базовая картинка со случайной категорией
+        # 3. Та же базовая картинка со случайной категорией фраз
         if PHRASES:
             print(f"  ⏳ Генерируем случайную категорию...")
             random_category = random.choice(list(PHRASES.keys()))
             random_phrase = get_random_phrase(random_category)
             print(f"  📝 Категория: {random_category}, фраза: {random_phrase[:50]}...")
             
-            print(f"  ⏳ Добавляем текст на базовую картинку...")
+            print(f"  ⏳ Добавляем текст на ту же базовую картинку...")
             full = add_text_to_image(base_image_url, random_phrase)
             if full:
                 image_id = generate_unique_id("menu_category")
@@ -374,7 +376,7 @@ def inline_handler(inline_query):
                     description=f"«{random_phrase[:40]}...»"
                 )
                 results.append(result3)
-                print(f"  ✅ Категория {random_category} добавлена, URL: {url}")
+                print(f"  ✅ Категория {random_category} добавлена")
             else:
                 print(f"  ❌ Ошибка: add_text_to_image вернул None для категории")
         else:
@@ -454,8 +456,8 @@ def inline_handler(inline_query):
         results.append(result_help)
         
         print(f"📊 Всего результатов: {len(results)}")
-        print(f"  🖼️ Фото: {len([r for r in results if r.type == 'photo'])}")
-        print(f"  📝 Текст: {len([r for r in results if r.type == 'article'])}")
+        print(f"  🖼️ Фото: {len([r for r in results if hasattr(r, 'photo_url')])}")
+        print(f"  📝 Текст: {len([r for r in results if hasattr(r, 'input_message_content')])}")
         
         # Отправляем меню
         try:
