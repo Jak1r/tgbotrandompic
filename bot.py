@@ -432,10 +432,10 @@ def inline_handler(inline_query):
 
         parts = query_text.lower().split()
 
-        # ===== ОБНОВЛЕННАЯ ЛОГИКА =====
         # Проверяем на randtext
         if parts and parts[0] == 'randtext':
             is_randtext = True
+            print(f"  → режим randtext")
             
             if len(parts) > 1:
                 if parts[1].isdigit():
@@ -460,6 +460,7 @@ def inline_handler(inline_query):
             phrase_category = parts[0]
             text_to_add = get_random_phrase(phrase_category)
             search_query = ' '.join(parts[1:]) if len(parts) > 1 else None
+            print(f"  → категория: {phrase_category}")
         
         # Проверяем на текст в кавычках
         elif re.match(r'^".+"', query_text):
@@ -468,85 +469,84 @@ def inline_handler(inline_query):
                 text_to_add = text_match.group(1)
                 remaining = re.sub(r'"[^"]+"', '', query_text).strip()
                 search_query = remaining if remaining else None
+                print(f"  → текст в кавычках: {text_to_add[:30]}...")
         
         # Обычный поиск
         elif query_text:
+            print(f"  → поиск: {query_text}")
             search_query = query_text
 
-        # ===== НОВАЯ ФИЧА: 3 КАРТИНКИ С ОДИНАКОВЫМ ТЕКСТОМ =====
+        # ===== ГЕНЕРАЦИЯ 3 КАРТИНОК =====
         if text_to_add or is_randtext:
             print(f"🖼️ Генерируем 3 картинки с текстом: '{text_to_add[:30]}...'")
             
-            # Получаем 3 разных изображения
+            # Сначала находим 3 URL картинок
             image_urls = []
             attempts = 0
-            max_attempts = 10  # Максимум попыток чтобы избежать бесконечного цикла
+            max_attempts = 15  # Увеличим количество попыток
             
             while len(image_urls) < 3 and attempts < max_attempts:
                 image_url, _ = get_random_image(search_query)
-                if image_url and image_url not in image_urls:  # Избегаем дубликатов
+                if image_url and image_url not in image_urls:
                     image_urls.append(image_url)
-                    print(f"  ✅ Найдено {len(image_urls)}/3 картинок")
+                    print(f"  ✅ Найдено {len(image_urls)}/3 URL")
                 attempts += 1
+                time.sleep(0.1)  # Небольшая задержка между запросами
             
-            if len(image_urls) < 3:
-                print(f"⚠️ Найдено только {len(image_urls)} картинок")
+            if len(image_urls) == 0:
+                print("❌ Не найдено ни одной картинки")
+                return
             
-            # Генерируем картинку для каждого URL
+            # Теперь генерируем картинки для каждого URL
             for i, image_url in enumerate(image_urls):
                 print(f"  🎨 Генерируем картинку {i+1}/{len(image_urls)}")
                 full = add_text_to_image(image_url, text_to_add)
                 
                 if full:
-                    image_id = generate_unique_id(f"choice_{i+1}")
+                    image_id = generate_unique_id(f"text_{i+1}")
+                    # Сохраняем в temp_images
                     temp_images[image_id] = (full.getvalue(), time.time())
                     
+                    # Формируем URL
                     hostname = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost")
                     url = f"https://{hostname}/image/{image_id}"
                     
-                    # Разные заголовки для каждой картинки
-                    titles = [
-                        f"🎨 Вариант 1: {text_to_add[:20]}...",
-                        f"🖼️ Вариант 2: {text_to_add[:20]}...",
-                        f"🎭 Вариант 3: {text_to_add[:20]}..."
-                    ]
+                    print(f"    🔗 URL {i+1}: {url}")
                     
+                    # Создаем результат
                     result = telebot.types.InlineQueryResultPhoto(
                         id=image_id,
                         photo_url=url,
                         thumbnail_url=url,
                         photo_width=1080,
                         photo_height=720,
-                        title=titles[i],
-                        description=f"Вариант {i+1} • {text_to_add}"
+                        title=f"Вариант {i+1}: {text_to_add[:30]}...",
+                        description=f"Нажми для отправки"
                     )
                     results.append(result)
             
             print(f"✅ Сгенерировано {len(results)} картинок")
 
         else:
-            # Обычная картинка без текста (тоже 3 варианта)
+            # Обычные картинки без текста - тоже 3 варианта
             print(f"🖼️ Генерируем 3 картинки по запросу: '{search_query}'")
             
-            image_urls = []
+            image_data = []  # (url, thumb)
             attempts = 0
-            max_attempts = 10
+            max_attempts = 15
             
-            while len(image_urls) < 3 and attempts < max_attempts:
+            while len(image_data) < 3 and attempts < max_attempts:
                 image_url, thumb_url = get_random_image(search_query)
-                if image_url and image_url not in image_urls:
-                    image_urls.append((image_url, thumb_url))
-                    print(f"  ✅ Найдено {len(image_urls)}/3 картинок")
+                if image_url and thumb_url:
+                    # Проверяем, не использовали ли мы уже этот URL
+                    if not any(url == image_url for url, _ in image_data):
+                        image_data.append((image_url, thumb_url))
+                        print(f"  ✅ Найдено {len(image_data)}/3 картинок")
                 attempts += 1
+                time.sleep(0.1)
             
-            for i, (image_url, thumb_url) in enumerate(image_urls):
-                result_id = generate_unique_id(f"img_choice_{i+1}")
-                
-                titles = [
-                    f"📸 Вариант 1: {search_query or 'случайная'}",
-                    f"📷 Вариант 2: {search_query or 'случайная'}",
-                    f"🖼️ Вариант 3: {search_query or 'случайная'}"
-                ]
+            for i, (image_url, thumb_url) in enumerate(image_data):
+                result_id = generate_unique_id(f"img_{i+1}")
                 
                 result = telebot.types.InlineQueryResultPhoto(
                     id=result_id,
@@ -554,8 +554,8 @@ def inline_handler(inline_query):
                     thumbnail_url=thumb_url,
                     photo_width=1080,
                     photo_height=720,
-                    title=titles[i],
-                    description=f"Вариант {i+1} • нажми для выбора"
+                    title=f"Вариант {i+1}",
+                    description=f"Нажми для отправки"
                 )
                 results.append(result)
             
@@ -568,12 +568,17 @@ def inline_handler(inline_query):
     try:
         if results:
             bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
-            print(f"✅ Отправлено {len(results)} результатов")
+            print(f"✅ Отправлено {len(results)} результатов в Telegram")
+            
+            # Выводим все URL для проверки
+            for i, result in enumerate(results):
+                print(f"  URL {i+1}: {result.photo_url}")
         else:
             bot.answer_inline_query(inline_query.id, [], cache_time=0)
             print("❌ Нет результатов")
     except Exception as e:
         print(f"❌ Ошибка отправки: {e}")
+        traceback.print_exc()
 
 # Эндпоинт для получения изображений
 @app.route('/image/<image_id>', methods=['GET', 'HEAD'])
