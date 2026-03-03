@@ -63,7 +63,6 @@ def load_emojis():
             with open('emojis.json', 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            # Объединяем все категории
             all_emojis = []
             for category, emojis in data.items():
                 all_emojis.extend(emojis)
@@ -72,13 +71,11 @@ def load_emojis():
             return all_emojis
         else:
             print("❌ Файл emojis.json не найден!")
-            # Базовый набор на случай отсутствия файла
             return ["😀", "😂", "😎", "😍", "🥳", "🔥", "✨", "⭐", "🌈", "🍕"]
     except Exception as e:
         print(f"⚠️ Ошибка загрузки emojis.json: {e}")
         return ["😀", "😂", "😎", "😍", "🥳", "🔥", "✨", "⭐", "🌈", "🍕"]
 
-# Загружаем эмодзи при старте
 ALL_EMOJIS = load_emojis()
 print(f"📊 Всего эмодзи доступно: {len(ALL_EMOJIS)}")
 # ========== КОНЕЦ ЗАГРУЗКИ ЭМОДЗИ ==========
@@ -112,8 +109,70 @@ RANDOM_QUERIES = [
     'forest', 'sunset', 'flowers', 'architecture', 'beach', 'winter'
 ]
 
+# ========== ИСТОЧНИКИ МЕМОВ ==========
+MEME_SOURCES = [
+    {
+        'name': 'reddit',
+        'url': 'https://meme-api.com/gimme',
+        'parser': lambda data: (data.get('url'), data.get('preview', [data.get('url')])[-1] if data.get('preview') else data.get('url'))
+    },
+    {
+        'name': 'imgflip',
+        'url': 'https://api.imgflip.com/get_memes',
+        'parser': lambda data: (random.choice(data['data']['memes'])['url'], None) if data.get('data') and data['data'].get('memes') else (None, None)
+    },
+    {
+        'name': 'random-meme',
+        'url': 'https://meme-api.herokuapp.com/gimme',
+        'parser': lambda data: (data.get('url'), data.get('preview', [data.get('url')])[-1] if data.get('preview') else data.get('url'))
+    }
+]
+
+MEME_QUERIES = [
+    'meme', 'memes', 'funny', 'dankmemes', 'memesdaily',
+    'programmingmemes', 'wholesomememes', 'meirl', '2meirl4meirl',
+    'historymemes', 'animememes', 'gamingmemes'
+]
+
+def get_random_meme(query=None):
+    """Получает случайный мем из доступных источников"""
+    meme_url = None
+    thumb_url = None
+    
+    sources = MEME_SOURCES.copy()
+    random.shuffle(sources)
+    
+    for source in sources:
+        try:
+            print(f"🔄 Мем: пробуем {source['name']}")
+            
+            if source['name'] == 'reddit' and query:
+                url = f"https://meme-api.com/gimme/{query}"
+            else:
+                url = source['url']
+            
+            response = requests.get(url, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                meme_url, thumb_url = source['parser'](data)
+                
+                if meme_url:
+                    print(f"✅ Мем получен из {source['name']}")
+                    if not thumb_url:
+                        thumb_url = meme_url
+                    return meme_url, thumb_url
+                    
+        except Exception as e:
+            print(f"⚠️ Ошибка {source['name']}: {e}")
+            continue
+    
+    print("⚠️ Мем-API не работают, ищем картинки по тегам...")
+    tag = query or random.choice(MEME_QUERIES)
+    return get_random_image(tag)
+# ========== КОНЕЦ ИСТОЧНИКОВ МЕМОВ ==========
+
 # ========== ЭМОДЗИ ДНЯ ==========
-# Фразы для эмодзи дня (без смайликов в начале)
 EMOJI_PHRASES = [
     "Твоё эмодзи дня - {emoji}",
     "Случайное эмодзи дня - {emoji}",
@@ -134,48 +193,80 @@ EMOJI_PHRASES = [
     "Радужного тебе настроения! Твой эмодзи - {emoji}",
     "Тра-ля-ля, твоё эмодзи сегодня - {emoji}",
     "Ой, смотри какое эмодзи выпало: {emoji}",
-    "Вкусняшка дня - эмодзи {emoji}"
+    "Вкусняшка дня - эмодзи {emoji}",
+    "Сегодня ты будешь как {emoji} - стильно и модно!",
+    "Эмодзи дня: {emoji} (спорный выбор, но ок)",
+    "Держи своё эмодзи: {emoji}, не потеряй!",
+    "Твоя суперсила сегодня - {emoji}",
+    "Эмодзи-то какое: {emoji}! Завидуют все!",
+    "Сегодня ты - {emoji}, гордись!",
+    "Эмодзи дня определяет твоё настроение: {emoji}",
+    "Вжух! И твоё эмодзи дня - {emoji}",
+    "Ты думал будет другое? А вот нет! {emoji}",
+    "Эмодзи-гороскоп говорит: {emoji}",
+    "Твой тотем на сегодня - {emoji}",
+    "Эмодзи-оракул изрёк: {emoji}",
+    "Итак, сегодня ты - {emoji}. Смирись.",
+    "Поздравляю! Твоё эмодзи дня - {emoji}",
+    "Эмодзи-лотерея: выигрыш - {emoji}!",
+    "Твой персональный эмодзи-стикер: {emoji}",
+    "Эмодзи-шаман сказал: {emoji} будет твоим",
+    "Сюрприз! Твоё эмодзи дня - {emoji}",
+    "Эмодзи-карма принесла тебе {emoji}",
+    "Твой эмодзи-тотем на сегодня: {emoji}",
+    "Эмодзи-пророк вещает: {emoji}",
+    "Магия эмодзи превращает тебя в {emoji}",
+    "Эмодзи-гороскоп на сегодня: {emoji} - твой знак",
+    "Твоя эмодзи-аура сегодня: {emoji}",
+    "Эмодзи-вибрации дня: {emoji}",
+    "Космос посылает тебе эмодзи {emoji}",
+    "Твой эмодзи-дух-хранитель: {emoji}",
+    "Эмодзи-фарт на сегодня: {emoji}",
+    "День пройдёт под знаком эмодзи {emoji}",
+    "Эмодзи-предсказание: сегодня ты - {emoji}",
+    "Волшебный экран показал: {emoji}",
+    "Твой эмодзи-покровитель на сегодня: {emoji}",
+    "Эмодзи-энергия дня: {emoji}",
+    "Сегодня твой день - день эмодзи {emoji}!",
+    "Эмодзи-фортуна улыбнулась тебе: {emoji}",
+    "Твоя эмодзи-судьба: {emoji}",
+    "Эмодзи-вселенная выбрала: {emoji}",
+    "Сегодня ты будешь излучать эмодзи {emoji}",
+    "Эмодзи-настроение дня: {emoji}",
+    "Твой эмодзи-символ сегодня: {emoji}",
+    "Эмодзи-тотемное животное: {emoji}",
+    "Магический шар показывает: {emoji}",
+    "Эмодзи-поток принёс тебе {emoji}",
+    "Твой эмодзи-аватар на сегодня: {emoji}"
 ]
 
-# Хранилище эмодзи пользователей: {user_id: (emoji, expiry_timestamp)}
 user_emojis = {}
 
 def get_moscow_midnight_timestamp():
-    """Возвращает timestamp сегодняшней полуночи по Москве (00:00 текущего дня)"""
     tz = pytz.timezone('Europe/Moscow')
     now = datetime.now(tz)
-    # Сегодняшняя полночь
     midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
     return midnight.timestamp()
 
 def get_user_emoji(user_id):
-    """
-    Возвращает эмодзи для пользователя на сегодня.
-    Один пользователь = одно эмодзи до полуночи.
-    """
     current_time = time.time()
     today_midnight = get_moscow_midnight_timestamp()
     
-    # Проверяем, есть ли у пользователя эмодзи на сегодня
     if user_id in user_emojis:
         emoji, expiry = user_emojis[user_id]
-        # Проверяем, что эмодзи ещё актуально (expiry >= сегодняшняя полночь)
         if expiry >= today_midnight:
-            return emoji  # Возвращаем существующее эмодзи
+            return emoji
     
-    # Если нет эмодзи или оно устарело - генерируем новое
     new_emoji = random.choice(ALL_EMOJIS)
-    # Сохраняем с временем сегодняшней полуночи + 24 часа
-    next_midnight = today_midnight + 86400  # +24 часа
+    next_midnight = today_midnight + 86400
     user_emojis[user_id] = (new_emoji, next_midnight)
     
-    print(f"  → Новое эмодзи для {user_id}: {new_emoji} (до {datetime.fromtimestamp(next_midnight, pytz.timezone('Europe/Moscow'))})")
+    print(f"  → Новое эмодзи для {user_id}: {new_emoji}")
     return new_emoji
 
 def cleanup_old_emojis():
-    """Очищает устаревшие эмодзи (после полуночи)"""
     while True:
-        time.sleep(3600)  # Проверка каждый час
+        time.sleep(3600)
         current_time = time.time()
         to_delete = []
         for user_id, (_, expiry) in user_emojis.items():
@@ -188,13 +279,11 @@ def cleanup_old_emojis():
         if to_delete:
             print(f"🧹 Очищено {len(to_delete)} устаревших эмодзи")
 
-# Запускаем очистку в отдельном потоке
 threading.Thread(target=cleanup_old_emojis, daemon=True).start()
 # ========== КОНЕЦ ЭМОДЗИ ДНЯ ==========
 
-# ========== ФУНКЦИИ ДЛЯ GIF (ТОЛЬКО GIPHY) ==========
+# ========== ФУНКЦИИ ДЛЯ GIF ==========
 def get_random_gif(query=None):
-    """Получает случайную GIF-ку из GIPHY API"""
     if not GIPHY_API_KEY:
         print("❌ GIPHY API ключ не настроен")
         return None
@@ -228,7 +317,6 @@ def get_random_gif(query=None):
         return None
 
 def add_text_to_gif(gif_url, text):
-    """Накладывает текст на каждый кадр GIF-ки"""
     try:
         print(f"🎨 Накладываем текст на GIF: '{text[:30]}...'")
         
@@ -255,7 +343,6 @@ def add_text_to_gif(gif_url, text):
         if base_font is None:
             base_font = ImageFont.load_default()
         
-        # ===== МАСШТАБИРОВАНИЕ ТЕКСТА =====
         side_margin = min(max(int(frame_width * 0.05), 20), 60)
         target_width = frame_width - (side_margin * 2)
         safety_margin = 0.93
@@ -284,7 +371,6 @@ def add_text_to_gif(gif_url, text):
         
         font = base_font.font_variant(size=optimal_font_size)
         
-        # Разбиваем на строки
         words = text.split()
         lines = []
         current_line = []
@@ -302,7 +388,6 @@ def add_text_to_gif(gif_url, text):
         if current_line:
             lines.append(' '.join(current_line))
         
-        # Обрабатываем кадры
         durations = []
         frames = []
         
@@ -356,7 +441,7 @@ def add_text_to_gif(gif_url, text):
         traceback.print_exc()
         return None
 
-# Функция для получения фраз из Fucking Great Advice
+# Функция для получения фраз
 def get_russian_phrase():
     try:
         response = requests.get(
@@ -643,6 +728,13 @@ def start_command(message):
         '🎲 Случайные фразы:\n'
         '• `@randompikcha2_bot randtext` — картинка + осмысленная фраза\n'
         '• `@randompikcha2_bot randtext природа 2` — 2 картинки природы с фразой\n\n'
+        '🎭 Мемы:\n'
+        '• `@randompikcha2_bot meme` — случайный мем\n'
+        '• `@randompikcha2_bot meme 3` — 3 мема на выбор\n'
+        '• `@randompikcha2_bot meme "текст"` — мем с текстом\n'
+        '• `@randompikcha2_bot meme randtext` — мем с фразой\n'
+        '• `@randompikcha2_bot meme papich` — мем с фразой из категории\n'
+        '• `@randompikcha2_bot meme кот 2` — 2 мема про котов\n\n'
         '🎲 Эмодзи дня:\n'
         '• `@randompikcha2_bot emoji` — твоё персональное эмодзи на сегодня\n'
         '  (обновляется каждый день в 00:00 по Москве)\n\n'
@@ -687,7 +779,6 @@ def inline_handler(inline_query):
     
     print(f"📨 Запрос: '{query_text}' от {user_id}")
     
-    # Умная задержка
     if not query_text:
         pass
     elif len(query_text) < 3:
@@ -705,12 +796,12 @@ def inline_handler(inline_query):
         search_query = None
         is_randtext = False
         is_gif = False
+        is_meme = False
         images_count = 1
         
         original_text = query_text
         parts = query_text.lower().split()
         
-        # Ищем число в конце
         if parts and parts[-1].isdigit():
             images_count = min(int(parts[-1]), 5)
             query_text = ' '.join(parts[:-1])
@@ -720,16 +811,9 @@ def inline_handler(inline_query):
         # Эмодзи дня
         if parts and parts[0] == 'emoji':
             print(f"  → команда emoji")
-            
-            # Получаем эмодзи для пользователя (всегда одно на день)
             emoji = get_user_emoji(user_id)
-            
-            # Выбираем случайную фразу
             phrase = random.choice(EMOJI_PHRASES).format(emoji=emoji)
-            
-            # Создаем результат
             result_id = generate_unique_id("emoji")
-            
             result = InlineQueryResultArticle(
                 id=result_id,
                 title=f"🎲 Эмодзи дня {emoji}",
@@ -746,8 +830,45 @@ def inline_handler(inline_query):
             search_query = None
             print(f"  → {images_count} случайных картинок")
         else:
-            # Блок для GIF
-            if parts and parts[0] == 'gif':
+            # Мемы
+            if parts and parts[0] == 'meme':
+                print(f"  → режим MEME")
+                is_meme = True
+                
+                if len(parts) == 1:
+                    search_query = None
+                    text_to_add = None
+                    print(f"  → просто мем без текста")
+                else:
+                    if re.match(r'^".+"', ' '.join(parts[1:])):
+                        text_match = re.search(r'"([^"]+)"', original_text)
+                        if text_match:
+                            text_to_add = text_match.group(1)
+                            remaining = re.sub(r'"[^"]+"', '', original_text.replace('meme', '', 1)).strip()
+                            if remaining and remaining.split() and remaining.split()[-1].isdigit():
+                                remaining = ' '.join(remaining.split()[:-1])
+                            search_query = remaining if remaining else None
+                            print(f"  → текст на меме: {text_to_add[:30]}...")
+                    
+                    elif parts[1] == 'randtext':
+                        is_randtext = True
+                        text_to_add = get_russian_phrase()
+                        search_query = ' '.join(parts[2:]) if len(parts) > 2 else None
+                        print(f"  → фраза на меме: {text_to_add[:30]}...")
+                    
+                    elif parts[1] in PHRASES:
+                        phrase_category = parts[1]
+                        text_to_add = get_random_phrase(phrase_category)
+                        search_query = ' '.join(parts[2:]) if len(parts) > 2 else None
+                        print(f"  → категория на меме: {phrase_category} -> '{text_to_add[:30]}...'")
+                    
+                    else:
+                        search_query = ' '.join(parts[1:])
+                        text_to_add = None
+                        print(f"  → поиск мемов по теме: {search_query}")
+            
+            # GIF
+            elif parts and parts[0] == 'gif':
                 if not GIPHY_API_KEY:
                     print("❌ GIF запрос, но API не настроен")
                     return
@@ -760,7 +881,6 @@ def inline_handler(inline_query):
                     text_to_add = None
                     print(f"  → просто GIF без текста")
                 else:
-                    # Текст в кавычках
                     if re.match(r'^".+"', ' '.join(parts[1:])):
                         text_match = re.search(r'"([^"]+)"', original_text)
                         if text_match:
@@ -771,21 +891,18 @@ def inline_handler(inline_query):
                             search_query = remaining if remaining else None
                             print(f"  → текст на GIF: {text_to_add[:30]}...")
                     
-                    # randtext
                     elif parts[1] == 'randtext':
                         is_randtext = True
                         text_to_add = get_russian_phrase()
                         search_query = ' '.join(parts[2:]) if len(parts) > 2 else None
                         print(f"  → фраза на GIF: {text_to_add[:30]}...")
                     
-                    # Категории фраз
                     elif parts[1] in PHRASES:
                         phrase_category = parts[1]
                         text_to_add = get_random_phrase(phrase_category)
                         search_query = ' '.join(parts[2:]) if len(parts) > 2 else None
                         print(f"  → категория на GIF: {phrase_category} -> '{text_to_add[:30]}...'")
                     
-                    # Обычный поиск
                     else:
                         search_query = ' '.join(parts[1:])
                         text_to_add = None
@@ -868,6 +985,63 @@ def inline_handler(inline_query):
                     results.append(result)
             
             print(f"✅ Сгенерировано {len(results)} GIF")
+
+        elif is_meme:
+            print(f"🎭 Генерируем {images_count} мемов" + (" с текстом" if text_to_add else ""))
+            
+            meme_data = []
+            attempts = 0
+            max_attempts = images_count * 5
+            
+            while len(meme_data) < images_count and attempts < max_attempts:
+                meme_url, thumb_url = get_random_meme(search_query)
+                if meme_url and thumb_url:
+                    if not any(url == meme_url for url, _ in meme_data):
+                        meme_data.append((meme_url, thumb_url))
+                        print(f"  ✅ Найдено {len(meme_data)}/{images_count} мемов")
+                attempts += 1
+            
+            if len(meme_data) == 0:
+                print("❌ Не найдено ни одного мема")
+                return
+            
+            for i, (meme_url, thumb_url) in enumerate(meme_data):
+                print(f"  🎨 Обрабатываем мем {i+1}/{len(meme_data)}")
+                
+                if text_to_add:
+                    full = add_text_to_image(meme_url, text_to_add)
+                    if full:
+                        meme_id = generate_unique_id(f"meme_text_{i+1}")
+                        temp_images[meme_id] = (full.getvalue(), time.time())
+                        
+                        hostname = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost")
+                        url = f"https://{hostname}/image/{meme_id}"
+                        
+                        result = telebot.types.InlineQueryResultPhoto(
+                            id=meme_id,
+                            photo_url=url,
+                            thumbnail_url=url,
+                            photo_width=1080,
+                            photo_height=720,
+                            title=f"Мем {i+1}: {text_to_add[:30]}...",
+                            description=f"Мем с текстом"
+                        )
+                        results.append(result)
+                else:
+                    meme_id = generate_unique_id(f"meme_{i+1}")
+                    
+                    result = telebot.types.InlineQueryResultPhoto(
+                        id=meme_id,
+                        photo_url=meme_url,
+                        thumbnail_url=thumb_url,
+                        photo_width=1080,
+                        photo_height=720,
+                        title=f"Мем {i+1}",
+                        description=f"Случайный мем"
+                    )
+                    results.append(result)
+            
+            print(f"✅ Сгенерировано {len(results)} мемов")
 
         elif text_to_add or is_randtext:
             print(f"🖼️ Генерируем {images_count} картинок с текстом: '{text_to_add[:30]}...'")
@@ -957,7 +1131,6 @@ def inline_handler(inline_query):
         print(f"❌ Ошибка отправки: {e}")
         traceback.print_exc()
 
-# Эндпоинт для получения файлов
 @app.route('/image/<image_id>', methods=['GET', 'HEAD'])
 def serve_image(image_id):
     if image_id in temp_images:
@@ -1010,6 +1183,7 @@ def index():
         f'📸 API фото: {", ".join(available_apis)}<br>'
         f'🎬 GIF API: {gif_status}<br>'
         f'🎲 Эмодзи в базе: {emoji_count}<br>'
+        f'🎭 Мемы: ✅ (Reddit, Imgflip, и др.)<br>'
         f'📦 Файлов в памяти: {len(temp_images)}<br>'
         f'📝 Фраз: {sum(len(v) for v in PHRASES.values())}<br>'
         f'🌐 Домен: https://{hostname}'
