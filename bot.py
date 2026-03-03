@@ -117,7 +117,7 @@ def get_random_gif(query=None):
         return None
 
 def add_text_to_gif(gif_url, text):
-    """Накладывает текст на каждый кадр GIF-ки с правильным масштабированием"""
+    """Накладывает текст на каждый кадр GIF-ки (алгоритм как для фото)"""
     try:
         print(f"🎨 Накладываем текст на GIF: '{text[:30]}...'")
         
@@ -127,6 +127,7 @@ def add_text_to_gif(gif_url, text):
         
         # Получаем размер первого кадра для расчета шрифта
         first_frame = gif.convert('RGB')
+        frame_width, frame_height = first_frame.size
         
         # Загружаем шрифт для измерения
         font_paths = [
@@ -146,74 +147,97 @@ def add_text_to_gif(gif_url, text):
         if base_font is None:
             base_font = ImageFont.load_default()
         
-        # ===== ПРАВИЛЬНОЕ МАСШТАБИРОВАНИЕ =====
-        target_width = first_frame.width - 80  # отступы по 40px с каждой стороны
-        words = text.split()
+        # ===== ТОТ ЖЕ АЛГОРИТМ ЧТО И ДЛЯ ФОТО =====
+        side_margin = min(max(int(frame_width * 0.05), 20), 60)
+        target_width = frame_width - (side_margin * 2)
+        safety_margin = 0.93
         
-        # Начинаем с МАКСИМАЛЬНОГО шрифта и УМЕНЬШАЕМ
-        max_font_size = int(first_frame.height * 0.15)  # 15% от высоты
-        min_font_size = 20
-        optimal_font_size = min_font_size
-        optimal_lines = []
+        # Получаем уникальные символы для измерения
+        unique_chars = ''.join(set(text.replace(' ', ''))) or "А"
+        char_width_target = (target_width / len(text)) * safety_margin
         
-        print(f"📏 Подбираем размер шрифта от {max_font_size} до {min_font_size}px")
+        # Тестируем размеры шрифта (от большого к малому)
+        test_sizes = [200, 180, 160, 140, 120, 110, 100, 95, 90, 85, 80, 75, 70, 68, 66, 64, 62, 60, 58, 56, 54, 52, 50, 48, 46, 44, 42, 40, 38, 36, 34, 32, 30, 28, 26, 24, 22, 20]
+        
+        optimal_font_size = 20
+        
+        print(f"📏 Подбираем размер шрифта (цель: {char_width_target:.1f}px на символ)")
         
         # Создаем временный draw объект для измерения
         temp_draw = ImageDraw.Draw(first_frame)
         
-        for size in range(max_font_size, min_font_size - 1, -2):  # УМЕНЬШАЕМ
-            test_font = base_font.font_variant(size=size)
+        for size in test_sizes:
+            font = base_font.font_variant(size=size)
             
-            # Разбиваем на строки с текущим размером
-            lines = []
-            current_line = []
+            # Измеряем среднюю ширину уникальных символов
+            total_width = 0
+            for char in unique_chars[:5]:
+                bbox = temp_draw.textbbox((0, 0), char, font=font)
+                total_width += bbox[2] - bbox[0]
             
-            for word in words:
-                test_line = ' '.join(current_line + [word])
-                bbox = temp_draw.textbbox((0, 0), test_line, font=test_font)
-                if bbox[2] - bbox[0] <= target_width:
-                    current_line.append(word)
-                else:
-                    if current_line:
-                        lines.append(' '.join(current_line))
-                    current_line = [word]
+            avg_char_width = total_width / min(len(unique_chars), 5)
             
-            if current_line:
-                lines.append(' '.join(current_line))
+            print(f"  Размер {size}px → ширина символа: {avg_char_width:.1f}px")
             
-            # Если помещается в разумное количество строк (≤3)
-            if len(lines) <= 3:
+            if avg_char_width <= char_width_target:
                 optimal_font_size = size
-                optimal_lines = lines
-                print(f"  ✅ Размер {size}px → {len(lines)} строк")
+                print(f"  ✅ Выбран размер {size}px")
                 break
-            else:
-                print(f"  ❌ Размер {size}px → {len(lines)} строк (много)")
         
-        print(f"📏 Итоговый размер шрифта: {optimal_font_size}px")
         font = base_font.font_variant(size=optimal_font_size)
         
-        # Если не нашли подходящий (текст очень длинный), используем минимальный
-        if not optimal_lines:
-            print(f"⚠️ Текст очень длинный, используем минимальный размер {min_font_size}px")
-            optimal_font_size = min_font_size
-            font = base_font.font_variant(size=min_font_size)
+        # Разбиваем текст на строки
+        words = text.split()
+        lines = []
+        current_line = []
+        
+        for word in words:
+            test_line = ' '.join(current_line + [word])
+            bbox = temp_draw.textbbox((0, 0), test_line, font=font)
+            if bbox[2] - bbox[0] <= target_width:
+                current_line.append(word)
+            else:
+                if current_line:
+                    lines.append(' '.join(current_line))
+                current_line = [word]
+        
+        if current_line:
+            lines.append(' '.join(current_line))
+        
+        # Если получилось слишком много строк, уменьшаем шрифт
+        if len(lines) > 3:
+            print(f"⚠️ Получилось {len(lines)} строк, ищем меньший размер...")
+            current_index = test_sizes.index(optimal_font_size) if optimal_font_size in test_sizes else -1
             
-            # Финальное разбиение
-            optimal_lines = []
-            current_line = []
-            for word in words:
-                test_line = ' '.join(current_line + [word])
-                bbox = temp_draw.textbbox((0, 0), test_line, font=font)
-                if bbox[2] - bbox[0] <= target_width:
-                    current_line.append(word)
-                else:
-                    if current_line:
-                        optimal_lines.append(' '.join(current_line))
-                    current_line = [word]
-            
-            if current_line:
-                optimal_lines.append(' '.join(current_line))
+            for next_index in range(current_index + 1, len(test_sizes)):
+                next_size = test_sizes[next_index]
+                test_font = base_font.font_variant(size=next_size)
+                
+                # Переразбиваем с новым размером
+                test_lines = []
+                test_current = []
+                
+                for word in words:
+                    test_line = ' '.join(test_current + [word])
+                    bbox = temp_draw.textbbox((0, 0), test_line, font=test_font)
+                    if bbox[2] - bbox[0] <= target_width:
+                        test_current.append(word)
+                    else:
+                        if test_current:
+                            test_lines.append(' '.join(test_current))
+                        test_current = [word]
+                
+                if test_current:
+                    test_lines.append(' '.join(test_current))
+                
+                if len(test_lines) <= 3:
+                    optimal_font_size = next_size
+                    font = test_font
+                    lines = test_lines
+                    print(f"  ✅ Выбран размер {next_size}px ({len(lines)} строк)")
+                    break
+        
+        print(f"📏 Итоговый размер шрифта: {optimal_font_size}px, строк: {len(lines)}")
         
         # Обрабатываем каждый кадр
         durations = []
@@ -234,7 +258,7 @@ def add_text_to_gif(gif_url, text):
             y_offset = frame_copy.height - 60
             outline_range = max(2, int(optimal_font_size * 0.03))
             
-            for line in reversed(optimal_lines):
+            for line in reversed(lines):
                 bbox = draw.textbbox((0, 0), line, font=font)
                 tw = bbox[2] - bbox[0]
                 th = bbox[3] - bbox[1]
@@ -266,7 +290,7 @@ def add_text_to_gif(gif_url, text):
         )
         output.seek(0)
         
-        print(f"✅ GIF готова, кадров: {len(frames)}, шрифт: {optimal_font_size}px, строк: {len(optimal_lines)}")
+        print(f"✅ GIF готова, кадров: {len(frames)}, шрифт: {optimal_font_size}px")
         return output
         
     except Exception as e:
