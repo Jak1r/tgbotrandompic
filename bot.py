@@ -413,14 +413,11 @@ def inline_handler(inline_query):
     
     print(f"📨 Запрос: '{query_text}' от {user_id}")
     
-    # ===== УМНАЯ ЗАДЕРЖКА (только для сложных запросов) =====
-    # Если запрос пустой - моментальный ответ
+    # ===== УМНАЯ ЗАДЕРЖКА =====
     if not query_text:
         pass  # без задержки
-    # Если запрос очень короткий (1-2 символа) - минимальная задержка
     elif len(query_text) < 3:
         time.sleep(0.2)
-    # Для остальных - стандартная задержка
     else:
         hash_input = f"{user_id}_{query_text}".encode()
         hash_value = int(hashlib.md5(hash_input).hexdigest(), 16)
@@ -458,26 +455,20 @@ def inline_handler(inline_query):
                 is_randtext = True
                 print(f"  → режим randtext")
                 
+                # Получаем поисковый запрос (все что после randtext, кроме числа)
                 if len(parts) > 1:
+                    # Проверяем, является ли следующий элемент числом (для обратной совместимости)
                     if parts[1].isdigit():
-                        phrase_count = min(int(parts[1]), 3)
+                        # Старый формат randtext 3 - игнорируем число, берем одну фразу
                         search_query = ' '.join(parts[2:]) if len(parts) > 2 else None
                     else:
                         search_query = ' '.join(parts[1:])
                 else:
                     search_query = None
                 
-                # Получаем фразы
-                if phrase_count > 1:
-                    phrases = []
-                    for i in range(phrase_count):
-                        phrase = get_russian_phrase()
-                        phrases.append(phrase)
-                        if i < phrase_count - 1:
-                            time.sleep(0.1)  # минимальная пауза между API
-                    text_to_add = ' | '.join(phrases)
-                else:
-                    text_to_add = get_russian_phrase()
+                # ВСЕГДА берем только ОДНУ фразу
+                text_to_add = get_russian_phrase()
+                print(f"  → фраза: {text_to_add[:30]}...")
             
             # Проверяем на категории фраз
             elif parts and parts[0] in PHRASES:
@@ -488,31 +479,30 @@ def inline_handler(inline_query):
             
             # Проверяем на текст в кавычках
             elif re.match(r'^".+"', query_text) or (parts and parts[0].startswith('"')):
-                # Ищем текст в кавычках
                 text_match = re.search(r'"([^"]+)"', original_text)
                 if text_match:
                     text_to_add = text_match.group(1)
                     # Убираем кавычки из запроса для поиска
                     remaining = re.sub(r'"[^"]+"', '', original_text).strip()
-                    # Убираем число, если оно есть (мы его уже обработали)
+                    # Убираем число, если оно есть
                     if remaining and remaining.split() and remaining.split()[-1].isdigit():
                         remaining = ' '.join(remaining.split()[:-1])
                     search_query = remaining if remaining else None
-                    print(f"  → текст в кавычках: {text_to_add[:30]}...")
+                    print(f"  → текст: {text_to_add[:30]}...")
             
             # Обычный поиск
             elif query_text:
                 print(f"  → поиск: {query_text}")
                 search_query = query_text
 
-        # ===== ГЕНЕРАЦИЯ НУЖНОГО КОЛИЧЕСТВА КАРТИНОК =====
+        # ===== ГЕНЕРАЦИЯ КАРТИНОК =====
         if text_to_add or is_randtext:
             print(f"🖼️ Генерируем {images_count} картинок с текстом: '{text_to_add[:30]}...'")
             
             # Быстро собираем URL
             image_urls = []
             attempts = 0
-            max_attempts = images_count * 5  # достаточно попыток
+            max_attempts = images_count * 5
             
             while len(image_urls) < images_count and attempts < max_attempts:
                 image_url, _ = get_random_image(search_query)
