@@ -115,7 +115,7 @@ def get_random_gif(query=None):
     except Exception as e:
         print(f"❌ GIPHY ошибка: {e}")
         return None
-    
+
 def add_text_to_gif(gif_url, text):
     """Накладывает текст на каждый кадр GIF-ки с правильным масштабированием"""
     try:
@@ -147,7 +147,7 @@ def add_text_to_gif(gif_url, text):
             base_font = ImageFont.load_default()
         
         # ===== ПРАВИЛЬНОЕ МАСШТАБИРОВАНИЕ =====
-        target_width = first_frame.width - 80  # отступы
+        target_width = first_frame.width - 80  # отступы по 40px с каждой стороны
         words = text.split()
         
         # Начинаем с МАКСИМАЛЬНОГО шрифта и УМЕНЬШАЕМ
@@ -158,6 +158,9 @@ def add_text_to_gif(gif_url, text):
         
         print(f"📏 Подбираем размер шрифта от {max_font_size} до {min_font_size}px")
         
+        # Создаем временный draw объект для измерения
+        temp_draw = ImageDraw.Draw(first_frame)
+        
         for size in range(max_font_size, min_font_size - 1, -2):  # УМЕНЬШАЕМ
             test_font = base_font.font_variant(size=size)
             
@@ -167,7 +170,7 @@ def add_text_to_gif(gif_url, text):
             
             for word in words:
                 test_line = ' '.join(current_line + [word])
-                bbox = ImageDraw.Draw(first_frame).textbbox((0, 0), test_line, font=test_font)
+                bbox = temp_draw.textbbox((0, 0), test_line, font=test_font)
                 if bbox[2] - bbox[0] <= target_width:
                     current_line.append(word)
                 else:
@@ -201,7 +204,7 @@ def add_text_to_gif(gif_url, text):
             current_line = []
             for word in words:
                 test_line = ' '.join(current_line + [word])
-                bbox = ImageDraw.Draw(first_frame).textbbox((0, 0), test_line, font=font)
+                bbox = temp_draw.textbbox((0, 0), test_line, font=font)
                 if bbox[2] - bbox[0] <= target_width:
                     current_line.append(word)
                 else:
@@ -222,6 +225,7 @@ def add_text_to_gif(gif_url, text):
             except:
                 durations.append(50)
             
+            # Конвертируем в RGB для рисования
             frame_rgb = frame.convert('RGB')
             frame_copy = frame_rgb.copy()
             draw = ImageDraw.Draw(frame_copy)
@@ -268,8 +272,8 @@ def add_text_to_gif(gif_url, text):
     except Exception as e:
         print(f"❌ Ошибка GIF: {e}")
         traceback.print_exc()
-        return None   
- 
+        return None
+
 # Функция для получения фраз из Fucking Great Advice
 def get_russian_phrase():
     try:
@@ -680,36 +684,37 @@ def inline_handler(inline_query):
                         text_to_add = None
                         print(f"  → поиск GIF по тегу: {search_query}")
             
-            # randtext для фото
-            elif parts and parts[1] == 'randtext':
-                is_randtext = True
-                print(f"  → режим randtext")
+            # ===== ФОТО (не GIF) =====
+            else:
+                # randtext для фото
+                if parts and parts[0] == 'randtext':
+                    is_randtext = True
+                    print(f"  → режим randtext для фото")
+                    text_to_add = get_russian_phrase()
+                    search_query = ' '.join(parts[1:]) if len(parts) > 1 else None
                 
-                search_query = ' '.join(parts[1:]) if len(parts) > 1 else None
-                text_to_add = get_russian_phrase()
-                print(f"  → фраза: {text_to_add[:30]}...")
-            # Категории фраз
-            elif parts and parts[1] in PHRASES:
-                phrase_category = parts[1]
-                text_to_add = get_random_phrase(phrase_category)
-                search_query = ' '.join(parts[1:]) if len(parts) > 1 else None
-                print(f"  → категория: {phrase_category}")
-            
-            # Текст в кавычках
-            elif re.match(r'^".+"', query_text) or (parts and parts[0].startswith('"')):
-                text_match = re.search(r'"([^"]+)"', original_text)
-                if text_match:
-                    text_to_add = text_match.group(1)
-                    remaining = re.sub(r'"[^"]+"', '', original_text).strip()
-                    if remaining and remaining.split() and remaining.split()[-1].isdigit():
-                        remaining = ' '.join(remaining.split()[:-1])
-                    search_query = remaining if remaining else None
-                    print(f"  → текст: {text_to_add[:30]}...")
-            
-            # Обычный поиск
-            elif query_text:
-                print(f"  → поиск: {query_text}")
-                search_query = query_text
+                # Категории фраз для фото
+                elif parts and parts[0] in PHRASES:
+                    phrase_category = parts[0]
+                    text_to_add = get_random_phrase(phrase_category)
+                    search_query = ' '.join(parts[1:]) if len(parts) > 1 else None
+                    print(f"  → категория фото: {phrase_category} -> '{text_to_add[:30]}...'")
+                
+                # Текст в кавычках для фото
+                elif re.match(r'^".+"', query_text) or (parts and parts[0].startswith('"')):
+                    text_match = re.search(r'"([^"]+)"', original_text)
+                    if text_match:
+                        text_to_add = text_match.group(1)
+                        remaining = re.sub(r'"[^"]+"', '', original_text).strip()
+                        if remaining and remaining.split() and remaining.split()[-1].isdigit():
+                            remaining = ' '.join(remaining.split()[:-1])
+                        search_query = remaining if remaining else None
+                        print(f"  → текст на фото: {text_to_add[:30]}...")
+                
+                # Обычный поиск для фото
+                elif query_text:
+                    print(f"  → поиск фото: {query_text}")
+                    search_query = query_text
 
         # ===== ГЕНЕРАЦИЯ =====
         if is_gif:
@@ -750,12 +755,12 @@ def inline_handler(inline_query):
                     url = f"https://{hostname}/image/{gif_id}"
                     
                     result = telebot.types.InlineQueryResultGif(
-                      id=gif_id,
-                      gif_url=url,
-                     thumbnail_url=url,  # ✅ ПРАВИЛЬНО: thumbnail_url
-                      gif_width=480,
-                      gif_height=360,
-                      title=f"GIF {i+1}" + (f": {text_to_add[:20]}..." if text_to_add else ""),
+                        id=gif_id,
+                        gif_url=url,
+                        thumbnail_url=url,
+                        gif_width=480,
+                        gif_height=360,
+                        title=f"GIF {i+1}" + (f": {text_to_add[:20]}..." if text_to_add else "")
                     )
                     results.append(result)
             
