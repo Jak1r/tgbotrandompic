@@ -113,62 +113,64 @@ RANDOM_QUERIES = [
 ]
 
 # ========== ЭМОДЗИ ДНЯ ==========
-# Веселые фразы для эмодзи дня
+# Фразы для эмодзи дня (без смайликов в начале)
 EMOJI_PHRASES = [
-    "🎲 Твоё эмодзи дня - {emoji}",
-    "✨ Случайное эмодзи дня - {emoji}",
-    "🎯 Сегодня тебе выпало: {emoji}",
-    "🤣 Ахахахаха, твоё эмодзи дня - {emoji}, жесть ты лох!",
-    "😎 Красавчик, твоё эмодзи дня - {emoji}",
-    "🎪 Барабанная дробь... Твоё эмодзи дня - {emoji}!",
-    "💫 Вселенная выбрала для тебя: {emoji}",
-    "🎰 Джекпот! Твоё эмодзи дня - {emoji}",
-    "🤔 Хмм, думаю тебе подойдёт... {emoji}",
-    "🎭 Сегодня ты в образе эмодзи {emoji}",
-    "🍀 Тебе сегодня везёт! Твоё эмодзи - {emoji}",
-    "⭐ Звезды говорят, твоё эмодзи дня - {emoji}",
-    "🎲 Крутится барабан... И твоё эмодзи дня - {emoji}!",
-    "😜 Оба-на, сегодня ты - {emoji}!",
-    "🔥 Хот-хот, твоё эмодзи дня - {emoji}!",
-    "💪 С таким эмодзи ты горы свернёшь: {emoji}",
-    "🌈 Радужного тебе настроения! Твой эмодзи - {emoji}",
-    "🎵 Тра-ля-ля, твоё эмодзи сегодня - {emoji}",
-    "🦄 Ой, смотри какое эмодзи выпало: {emoji}",
-    "🍕 Вкусняшка дня - эмодзи {emoji}"
+    "Твоё эмодзи дня - {emoji}",
+    "Случайное эмодзи дня - {emoji}",
+    "Сегодня тебе выпало: {emoji}",
+    "Твоё эмодзи дня - {emoji}, жесть ты лох!",
+    "Красавчик, твоё эмодзи дня - {emoji}",
+    "Барабанная дробь... Твоё эмодзи дня - {emoji}!",
+    "Вселенная выбрала для тебя: {emoji}",
+    "Джекпот! Твоё эмодзи дня - {emoji}",
+    "Хмм, думаю тебе подойдёт... {emoji}",
+    "Сегодня ты в образе эмодзи {emoji}",
+    "Тебе сегодня везёт! Твоё эмодзи - {emoji}",
+    "Звезды говорят, твоё эмодзи дня - {emoji}",
+    "Крутится барабан... И твоё эмодзи дня - {emoji}!",
+    "Оба-на, сегодня ты - {emoji}!",
+    "Хот-хот, твоё эмодзи дня - {emoji}!",
+    "С таким эмодзи ты горы свернёшь: {emoji}",
+    "Радужного тебе настроения! Твой эмодзи - {emoji}",
+    "Тра-ля-ля, твоё эмодзи сегодня - {emoji}",
+    "Ой, смотри какое эмодзи выпало: {emoji}",
+    "Вкусняшка дня - эмодзи {emoji}"
 ]
 
-# Хранилище эмодзи пользователей: {user_id: (emoji, timestamp)}
+# Хранилище эмодзи пользователей: {user_id: (emoji, expiry_timestamp)}
 user_emojis = {}
 
 def get_moscow_midnight_timestamp():
-    """Возвращает timestamp следующей полуночи по Москве"""
+    """Возвращает timestamp сегодняшней полуночи по Москве (00:00 текущего дня)"""
     tz = pytz.timezone('Europe/Moscow')
     now = datetime.now(tz)
-    # Следующая полночь
-    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+    # Сегодняшняя полночь
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
     return midnight.timestamp()
 
 def get_user_emoji(user_id):
     """
     Возвращает эмодзи для пользователя на сегодня.
-    Если эмодзи устарело (прошла полночь), генерирует новое.
+    Один пользователь = одно эмодзи до полуночи.
     """
     current_time = time.time()
-    moscow_midnight = get_moscow_midnight_timestamp()
+    today_midnight = get_moscow_midnight_timestamp()
     
-    # Проверяем, есть ли у пользователя эмодзи и не устарело ли оно
+    # Проверяем, есть ли у пользователя эмодзи на сегодня
     if user_id in user_emojis:
-        emoji, timestamp = user_emojis[user_id]
-        # Если эмодзи еще актуально (до сегодняшней полуночи)
-        if timestamp >= current_time and timestamp < moscow_midnight:
-            return emoji, False  # False = не новое
+        emoji, expiry = user_emojis[user_id]
+        # Проверяем, что эмодзи ещё актуально (expiry >= сегодняшняя полночь)
+        if expiry >= today_midnight:
+            return emoji  # Возвращаем существующее эмодзи
     
-    # Генерируем новое эмодзи
+    # Если нет эмодзи или оно устарело - генерируем новое
     new_emoji = random.choice(ALL_EMOJIS)
-    # Устанавливаем время окончания действия (сегодняшняя полночь)
-    user_emojis[user_id] = (new_emoji, moscow_midnight)
+    # Сохраняем с временем сегодняшней полуночи + 24 часа
+    next_midnight = today_midnight + 86400  # +24 часа
+    user_emojis[user_id] = (new_emoji, next_midnight)
     
-    return new_emoji, True  # True = новое
+    print(f"  → Новое эмодзи для {user_id}: {new_emoji} (до {datetime.fromtimestamp(next_midnight, pytz.timezone('Europe/Moscow'))})")
+    return new_emoji
 
 def cleanup_old_emojis():
     """Очищает устаревшие эмодзи (после полуночи)"""
@@ -719,15 +721,11 @@ def inline_handler(inline_query):
         if parts and parts[0] == 'emoji':
             print(f"  → команда emoji")
             
-            # Получаем эмодзи для пользователя
-            emoji, is_new = get_user_emoji(user_id)
+            # Получаем эмодзи для пользователя (всегда одно на день)
+            emoji = get_user_emoji(user_id)
             
             # Выбираем случайную фразу
             phrase = random.choice(EMOJI_PHRASES).format(emoji=emoji)
-            
-            # Если эмодзи новое, добавляем приписку
-            if is_new:
-                phrase += " 🌟 (свежее!)"
             
             # Создаем результат
             result_id = generate_unique_id("emoji")
@@ -742,7 +740,7 @@ def inline_handler(inline_query):
                 )
             )
             results.append(result)
-            print(f"  → эмодзи дня: {emoji} для пользователя {user_id}")
+            print(f"  → эмодзи дня для {user_id}: {emoji}")
         
         elif not query_text:
             search_query = None
