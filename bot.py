@@ -1,481 +1,34 @@
 import os
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, InlineQueryResultArticle, InputTextMessageContent
-import random
-import requests
 from flask import Flask, request, abort, send_file
 from dotenv import load_dotenv
 import time
-from PIL import Image, ImageDraw, ImageFont, ImageSequence
-from io import BytesIO
-import re
 import threading
 import json
 import uuid
 import sys
 import traceback
 import hashlib
-from datetime import datetime, timedelta
-import pytz
-from collections import defaultdict
+import re
+from io import BytesIO
 
-# ========== ЛОГИРОВАНИЕ ==========
-import logging
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    stream=sys.stdout,
-    force=True
-)
-
-print(f"Python version: {sys.version}")
-print(f"Working directory: {os.getcwd()}")
-# ========== КОНЕЦ ЛОГИРОВАНИЯ ==========
+# Импортируем общую логику
+from shared_logic import *
 
 load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
-UNSPLASH_ACCESS_KEY = os.getenv('UNSPLASH_ACCESS_KEY')
-PEXELS_API_KEY = os.getenv('PEXELS_API_KEY')
-PIXABAY_API_KEY = os.getenv('PIXABAY_API_KEY')
-GIPHY_API_KEY = os.getenv('GIPHY_API_KEY')
-
 PORT = int(os.getenv('PORT', 8080))
 
 if not TELEGRAM_TOKEN:
     raise ValueError("TELEGRAM_TOKEN не задан в переменных окружения")
 
-available_apis = []
-if UNSPLASH_ACCESS_KEY: available_apis.append('unsplash')
-if PEXELS_API_KEY: available_apis.append('pexels')
-if PIXABAY_API_KEY: available_apis.append('pixabay')
-
-print(f"🔑 Доступно API для фото: {', '.join(available_apis)}")
+print(f"🚀 Запуск inline бота...")
+print(f"📸 API фото: {', '.join(available_apis)}")
 if GIPHY_API_KEY:
-    print(f"🔑 GIPHY API: доступен (100 запросов/час)")
-
-# ========== ЗАГРУЗКА ЭМОДЗИ ==========
-def load_emojis():
-    """Загружает эмодзи из emojis.json"""
-    try:
-        if os.path.exists('emojis.json'):
-            with open('emojis.json', 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            
-            all_emojis = []
-            for category, emojis in data.items():
-                all_emojis.extend(emojis)
-            
-            print(f"✅ Загружено {len(all_emojis)} эмодзи из emojis.json")
-            return all_emojis
-        else:
-            print("❌ Файл emojis.json не найден!")
-            return ["😀", "😂", "😎", "😍", "🥳", "🔥", "✨", "⭐", "🌈", "🍕"]
-    except Exception as e:
-        print(f"⚠️ Ошибка загрузки emojis.json: {e}")
-        return ["😀", "😂", "😎", "😍", "🥳", "🔥", "✨", "⭐", "🌈", "🍕"]
-
-ALL_EMOJIS = load_emojis()
-print(f"📊 Всего эмодзи доступно: {len(ALL_EMOJIS)}")
-# ========== КОНЕЦ ЗАГРУЗКИ ЭМОДЗИ ==========
-
-# Фразы
-def load_phrases():
-    try:
-        with open('phrases.json', 'r', encoding='utf-8') as f:
-            phrases = json.load(f)
-        print(f"✅ Загружено {sum(len(v) for v in phrases.values())} фраз")
-        return phrases
-    except FileNotFoundError:
-        print("⚠️ phrases.json не найден → создаём дефолтный")
-        default = {
-            "papich": ["Хорош, хорош!", "Это база!", "Красавчик!", "Топчик!"],
-            "tehnik": ["Техника - молодёжь!", "Погнали!", "Здарова, пацаны!"],
-            "random": ["Удача", "Красота", "Счастье", "Сила"]
-        }
-        with open('phrases.json', 'w', encoding='utf-8') as f:
-            json.dump(default, f, ensure_ascii=False)
-        return default
-    except Exception as e:
-        print(f"Ошибка загрузки phrases.json: {e}")
-        return {}
-
-PHRASES = load_phrases()
-
-RANDOM_QUERIES = [
-    'nature', 'city', 'abstract', 'people', 'animals', 'food',
-    'travel', 'space', 'art', 'technology', 'mountain', 'ocean',
-    'forest', 'sunset', 'flowers', 'architecture', 'beach', 'winter'
-]
-
-# ========== ИСТОЧНИКИ МЕМОВ ==========
-MEME_SOURCES = [
-    {
-        'name': 'reddit',
-        'url': 'https://meme-api.com/gimme',
-        'parser': lambda data: (data.get('url'), data.get('preview', [data.get('url')])[-1] if data.get('preview') else data.get('url'))
-    },
-    {
-        'name': 'imgflip',
-        'url': 'https://api.imgflip.com/get_memes',
-        'parser': lambda data: (random.choice(data['data']['memes'])['url'], None) if data.get('data') and data['data'].get('memes') else (None, None)
-    },
-    {
-        'name': 'random-meme',
-        'url': 'https://meme-api.herokuapp.com/gimme',
-        'parser': lambda data: (data.get('url'), data.get('preview', [data.get('url')])[-1] if data.get('preview') else data.get('url'))
-    }
-]
-
-MEME_QUERIES = [
-    'meme', 'memes', 'funny', 'dankmemes', 'memesdaily',
-    'programmingmemes', 'wholesomememes', 'meirl', '2meirl4meirl',
-    'historymemes', 'animememes', 'gamingmemes'
-]
-
-def get_random_meme(query=None):
-    """Получает случайный мем из доступных источников"""
-    meme_url = None
-    thumb_url = None
-    
-    sources = MEME_SOURCES.copy()
-    random.shuffle(sources)
-    
-    for source in sources:
-        try:
-            print(f"🔄 Мем: пробуем {source['name']}")
-            
-            if source['name'] == 'reddit' and query:
-                url = f"https://meme-api.com/gimme/{query}"
-            else:
-                url = source['url']
-            
-            response = requests.get(url, timeout=10)
-            
-            if response.status_code == 200:
-                data = response.json()
-                meme_url, thumb_url = source['parser'](data)
-                
-                if meme_url:
-                    print(f"✅ Мем получен из {source['name']}")
-                    if not thumb_url:
-                        thumb_url = meme_url
-                    return meme_url, thumb_url
-                    
-        except Exception as e:
-            print(f"⚠️ Ошибка {source['name']}: {e}")
-            continue
-    
-    print("⚠️ Мем-API не работают, ищем картинки по тегам...")
-    tag = query or random.choice(MEME_QUERIES)
-    return get_random_image(tag)
-# ========== КОНЕЦ ИСТОЧНИКОВ МЕМОВ ==========
-
-# ========== ЭМОДЗИ ДНЯ ==========
-EMOJI_PHRASES = [
-    "Твоё эмодзи дня - {emoji}",
-    "Случайное эмодзи дня - {emoji}",
-    "Сегодня тебе выпало: {emoji}",
-    "Твоё эмодзи дня - {emoji}, жесть ты лох!",
-    "Красавчик, твоё эмодзи дня - {emoji}",
-    "Барабанная дробь... Твоё эмодзи дня - {emoji}!",
-    "Вселенная выбрала для тебя: {emoji}",
-    "Джекпот! Твоё эмодзи дня - {emoji}",
-    "Хмм, думаю тебе подойдёт... {emoji}",
-    "Сегодня ты в образе эмодзи {emoji}",
-    "Тебе сегодня везёт! Твоё эмодзи - {emoji}",
-    "Звезды говорят, твоё эмодзи дня - {emoji}",
-    "Крутится барабан... И твоё эмодзи дня - {emoji}!",
-    "Оба-на, сегодня ты - {emoji}!",
-    "Хот-хот, твоё эмодзи дня - {emoji}!",
-    "С таким эмодзи ты горы свернёшь: {emoji}",
-    "Радужного тебе настроения! Твой эмодзи - {emoji}",
-    "Тра-ля-ля, твоё эмодзи сегодня - {emoji}",
-    "Ой, смотри какое эмодзи выпало: {emoji}",
-    "Вкусняшка дня - эмодзи {emoji}",
-    "Сегодня ты будешь как {emoji} - стильно и модно!",
-    "Эмодзи дня: {emoji} (спорный выбор, но ок)",
-    "Держи своё эмодзи: {emoji}, не потеряй!",
-    "Твоя суперсила сегодня - {emoji}",
-    "Эмодзи-то какое: {emoji}! Завидуют все!",
-    "Сегодня ты - {emoji}, гордись!",
-    "Эмодзи дня определяет твоё настроение: {emoji}",
-    "Вжух! И твоё эмодзи дня - {emoji}",
-    "Ты думал будет другое? А вот нет! {emoji}",
-    "Эмодзи-гороскоп говорит: {emoji}",
-    "Твой тотем на сегодня - {emoji}",
-    "Эмодзи-оракул изрёк: {emoji}",
-    "Итак, сегодня ты - {emoji}. Смирись.",
-    "Поздравляю! Твоё эмодзи дня - {emoji}",
-    "Эмодзи-лотерея: выигрыш - {emoji}!",
-    "Твой персональный эмодзи-стикер: {emoji}",
-    "Эмодзи-шаман сказал: {emoji} будет твоим",
-    "Сюрприз! Твоё эмодзи дня - {emoji}",
-    "Эмодзи-карма принесла тебе {emoji}",
-    "Твой эмодзи-тотем на сегодня: {emoji}",
-    "Эмодзи-пророк вещает: {emoji}",
-    "Магия эмодзи превращает тебя в {emoji}",
-    "Эмодзи-гороскоп на сегодня: {emoji} - твой знак",
-    "Твоя эмодзи-аура сегодня: {emoji}",
-    "Эмодзи-вибрации дня: {emoji}",
-    "Космос посылает тебе эмодзи {emoji}",
-    "Твой эмодзи-дух-хранитель: {emoji}",
-    "Эмодзи-фарт на сегодня: {emoji}",
-    "День пройдёт под знаком эмодзи {emoji}",
-    "Эмодзи-предсказание: сегодня ты - {emoji}",
-    "Волшебный экран показал: {emoji}",
-    "Твой эмодзи-покровитель на сегодня: {emoji}",
-    "Эмодзи-энергия дня: {emoji}",
-    "Сегодня твой день - день эмодзи {emoji}!",
-    "Эмодзи-фортуна улыбнулась тебе: {emoji}",
-    "Твоя эмодзи-судьба: {emoji}",
-    "Эмодзи-вселенная выбрала: {emoji}",
-    "Сегодня ты будешь излучать эмодзи {emoji}",
-    "Эмодзи-настроение дня: {emoji}",
-    "Твой эмодзи-символ сегодня: {emoji}",
-    "Эмодзи-тотемное животное: {emoji}",
-    "Магический шар показывает: {emoji}",
-    "Эмодзи-поток принёс тебе {emoji}",
-    "Твой эмодзи-аватар на сегодня: {emoji}"
-]
-
-user_emojis = {}
-
-def get_moscow_midnight_timestamp():
-    tz = pytz.timezone('Europe/Moscow')
-    now = datetime.now(tz)
-    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    return midnight.timestamp()
-
-def get_user_emoji(user_id):
-    current_time = time.time()
-    today_midnight = get_moscow_midnight_timestamp()
-    
-    if user_id in user_emojis:
-        emoji, expiry = user_emojis[user_id]
-        if expiry >= today_midnight:
-            return emoji
-    
-    new_emoji = random.choice(ALL_EMOJIS)
-    next_midnight = today_midnight + 86400
-    user_emojis[user_id] = (new_emoji, next_midnight)
-    
-    print(f"  → Новое эмодзи для {user_id}: {new_emoji}")
-    return new_emoji
-
-def cleanup_old_emojis():
-    while True:
-        time.sleep(3600)
-        current_time = time.time()
-        to_delete = []
-        for user_id, (_, expiry) in user_emojis.items():
-            if current_time > expiry:
-                to_delete.append(user_id)
-        
-        for user_id in to_delete:
-            del user_emojis[user_id]
-        
-        if to_delete:
-            print(f"🧹 Очищено {len(to_delete)} устаревших эмодзи")
-
-threading.Thread(target=cleanup_old_emojis, daemon=True).start()
-# ========== КОНЕЦ ЭМОДЗИ ДНЯ ==========
-
-# ========== ФУНКЦИИ ДЛЯ GIF ==========
-def get_random_gif(query=None):
-    if not GIPHY_API_KEY:
-        print("❌ GIPHY API ключ не настроен")
-        return None
-    
-    try:
-        tag = query or random.choice(RANDOM_QUERIES)
-        
-        url = "https://api.giphy.com/v1/gifs/random"
-        params = {
-            'api_key': GIPHY_API_KEY,
-            'tag': tag,
-            'rating': 'pg-13',
-            'fmt': 'json'
-        }
-        
-        print(f"🔄 GIPHY: запрос с тегом '{tag}'")
-        response = requests.get(url, params=params, timeout=10)
-        
-        if response.status_code == 200:
-            data = response.json()
-            if data.get('data') and data['data'].get('images'):
-                gif_url = data['data']['images']['original']['url']
-                print(f"✅ GIPHY: GIF получена")
-                return gif_url
-        
-        print(f"⚠️ GIPHY: нет данных для тега '{tag}'")
-        return None
-        
-    except Exception as e:
-        print(f"❌ GIPHY ошибка: {e}")
-        return None
-
-def add_text_to_gif(gif_url, text):
-    try:
-        print(f"🎨 Накладываем текст на GIF: '{text[:30]}...'")
-        
-        r = requests.get(gif_url, timeout=10)
-        gif = Image.open(BytesIO(r.content))
-        
-        first_frame = gif.convert('RGB')
-        frame_width, frame_height = first_frame.size
-        
-        font_paths = [
-            '/app/fonts/Impact.ttf',
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-        ]
-        
-        base_font = None
-        for font_path in font_paths:
-            try:
-                base_font = ImageFont.truetype(font_path, 100)
-                print(f"✅ Шрифт для GIF: {font_path}")
-                break
-            except:
-                pass
-        
-        if base_font is None:
-            base_font = ImageFont.load_default()
-        
-        side_margin = min(max(int(frame_width * 0.05), 20), 60)
-        target_width = frame_width - (side_margin * 2)
-        safety_margin = 0.93
-        
-        unique_chars = ''.join(set(text.replace(' ', ''))) or "А"
-        char_width_target = (target_width / len(text)) * safety_margin
-        
-        test_sizes = [200, 180, 160, 140, 120, 110, 100, 95, 90, 85, 80, 75, 70, 68, 66, 64, 62, 60, 58, 56, 54, 52, 50, 48, 46, 44, 42, 40, 38, 36, 34, 32, 30, 28, 26, 24, 22, 20]
-        
-        optimal_font_size = 20
-        temp_draw = ImageDraw.Draw(first_frame)
-        
-        for size in test_sizes:
-            font = base_font.font_variant(size=size)
-            
-            total_width = 0
-            for char in unique_chars[:5]:
-                bbox = temp_draw.textbbox((0, 0), char, font=font)
-                total_width += bbox[2] - bbox[0]
-            
-            avg_char_width = total_width / min(len(unique_chars), 5)
-            
-            if avg_char_width <= char_width_target:
-                optimal_font_size = size
-                break
-        
-        font = base_font.font_variant(size=optimal_font_size)
-        
-        words = text.split()
-        lines = []
-        current_line = []
-        
-        for word in words:
-            test_line = ' '.join(current_line + [word])
-            bbox = temp_draw.textbbox((0, 0), test_line, font=font)
-            if bbox[2] - bbox[0] <= target_width:
-                current_line.append(word)
-            else:
-                if current_line:
-                    lines.append(' '.join(current_line))
-                current_line = [word]
-        
-        if current_line:
-            lines.append(' '.join(current_line))
-        
-        durations = []
-        frames = []
-        
-        for frame in ImageSequence.Iterator(gif):
-            try:
-                durations.append(frame.info.get('duration', 50))
-            except:
-                durations.append(50)
-            
-            frame_rgb = frame.convert('RGB')
-            frame_copy = frame_rgb.copy()
-            draw = ImageDraw.Draw(frame_copy)
-            
-            y_offset = frame_copy.height - 60
-            outline_range = max(2, int(optimal_font_size * 0.03))
-            
-            for line in reversed(lines):
-                bbox = draw.textbbox((0, 0), line, font=font)
-                tw = bbox[2] - bbox[0]
-                th = bbox[3] - bbox[1]
-                x = (frame_copy.width - tw) // 2
-                y = y_offset - th
-                
-                for dx in range(-outline_range, outline_range + 1):
-                    for dy in range(-outline_range, outline_range + 1):
-                        if dx != 0 or dy != 0:
-                            draw.text((x + dx, y + dy), line, font=font, fill='black')
-                
-                draw.text((x, y), line, font=font, fill='white')
-                y_offset = y - int(optimal_font_size * 0.2)
-            
-            frames.append(frame_copy)
-        
-        output = BytesIO()
-        frames[0].save(
-            output,
-            format='GIF',
-            save_all=True,
-            append_images=frames[1:],
-            loop=0,
-            duration=durations,
-            optimize=False
-        )
-        output.seek(0)
-        
-        print(f"✅ GIF готова, шрифт: {optimal_font_size}px")
-        return output
-        
-    except Exception as e:
-        print(f"❌ Ошибка GIF: {e}")
-        traceback.print_exc()
-        return None
-
-# Функция для получения фраз
-def get_russian_phrase():
-    try:
-        response = requests.get(
-            'https://fucking-great-advice.ru/api/random',
-            timeout=5,
-            headers={'User-Agent': 'Mozilla/5.0'}
-        )
-        
-        if response.status_code == 200:
-            data = response.json()
-            phrase = data.get('text', '').strip()
-            
-            if phrase and len(phrase) > 5:
-                return phrase
-            
-    except Exception as e:
-        print(f"⚠️ Ошибка получения фразы из API: {e}")
-    
-    return get_backup_phrase()
-
-def get_backup_phrase():
-    backup_phrases = [
-        "Всё будет хорошо!",
-        "Жизнь прекрасна!",
-        "Улыбнись новому дню!",
-        "Верь в лучшее!",
-        "Ты справишься!",
-        "Никогда не сдавайся!",
-        "Дорогу осилит идущий!",
-        "Сегодня твой день!",
-        "У тебя всё получится!",
-        "Мечты сбываются!"
-    ]
-    return random.choice(backup_phrases)
+    print(f"🎬 GIPHY API: доступен")
+print(f"🎲 Эмодзи в базе: {len(ALL_EMOJIS)}")
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
 app = Flask(__name__)
@@ -489,12 +42,8 @@ def generate_unique_id(prefix="img"):
     unique_str = str(uuid.uuid4()).replace('-', '')[:8]
     return f"{prefix}_{timestamp}_{random_part}_{unique_str}"
 
-def get_random_phrase(category="random"):
-    if category in PHRASES and PHRASES[category]:
-        return random.choice(PHRASES[category])
-    return "Случайная фраза"
-
 def cleanup_temp_images():
+    """Очистка старых изображений"""
     while True:
         time.sleep(600)
         now = time.time()
@@ -527,186 +76,6 @@ def setup_webhook():
     except Exception as e:
         print(f"Webhook error: {e}")
 
-def get_unsplash_image(query):
-    url = f'https://api.unsplash.com/photos/random?query={query}&client_id={UNSPLASH_ACCESS_KEY}'
-    try:
-        r = requests.get(url, timeout=10)
-        if r.status_code == 429:
-            print("⚠️ Unsplash rate limit")
-            return None, None, True
-        r.raise_for_status()
-        data = r.json()
-        urls = data.get('urls', {})
-        return urls.get('regular'), urls.get('thumb'), False
-    except Exception as e:
-        print(f"Unsplash error: {e}")
-        return None, None, False
-
-def get_pexels_image(query):
-    url = f'https://api.pexels.com/v1/search?query={query}&per_page=1&page={random.randint(1, 100)}'
-    headers = {'Authorization': PEXELS_API_KEY}
-    try:
-        r = requests.get(url, headers=headers, timeout=10)
-        if r.status_code == 429:
-            print("⚠️ Pexels rate limit")
-            return None, None, True
-        r.raise_for_status()
-        data = r.json()
-        photos = data.get('photos', [])
-        if photos:
-            photo = photos[0]
-            return photo['src']['large'], photo['src']['small'], False
-        return None, None, False
-    except Exception as e:
-        print(f"Pexels error: {e}")
-        return None, None, False
-
-def get_pixabay_image(query):
-    url = f'https://pixabay.com/api/?key={PIXABAY_API_KEY}&q={query}&image_type=photo&per_page=3&page={random.randint(1, 50)}'
-    try:
-        r = requests.get(url, timeout=10)
-        if r.status_code == 429:
-            print("⚠️ Pixabay rate limit")
-            return None, None, True
-        r.raise_for_status()
-        data = r.json()
-        hits = data.get('hits', [])
-        if hits:
-            photo = random.choice(hits)
-            return photo['largeImageURL'], photo['previewURL'], False
-        return None, None, False
-    except Exception as e:
-        print(f"Pixabay error: {e}")
-        return None, None, False
-
-def get_random_image(custom_query=None):
-    global current_api_index
-    query = custom_query or random.choice(RANDOM_QUERIES)
-    for _ in range(len(available_apis)):
-        api_name = available_apis[current_api_index]
-        print(f"Попытка #{_ + 1}: {api_name.upper()}")
-        image_url, thumb_url, rate_limited = None, None, False
-        if api_name == 'unsplash':
-            image_url, thumb_url, rate_limited = get_unsplash_image(query)
-        elif api_name == 'pexels':
-            image_url, thumb_url, rate_limited = get_pexels_image(query)
-        elif api_name == 'pixabay':
-            image_url, thumb_url, rate_limited = get_pixabay_image(query)
-        if image_url and thumb_url:
-            current_api_index = (current_api_index + 1) % len(available_apis)
-            return image_url, thumb_url
-        if rate_limited:
-            current_api_index = (current_api_index + 1) % len(available_apis)
-            continue
-        current_api_index = (current_api_index + 1) % len(available_apis)
-    print(f"Все API не дали результат для '{query}'")
-    return None, None
-
-# ========== ФУНКЦИЯ ДОБАВЛЕНИЯ ТЕКСТА НА ФОТО ==========
-def add_text_to_image(image_url, text):
-    try:
-        print(f"📝 Добавляем текст: '{text[:30]}...'")
-        
-        r = requests.get(image_url, timeout=10)
-        img = Image.open(BytesIO(r.content)).convert('RGB')
-        
-        max_size = 1200
-        if img.width > max_size or img.height > max_size:
-            img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
-        
-        draw = ImageDraw.Draw(img)
-        
-        font_paths = [
-            '/app/fonts/Impact.ttf',
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-        ]
-        
-        base_font = None
-        for font_path in font_paths:
-            try:
-                base_font = ImageFont.truetype(font_path, 100)
-                print(f"✅ Шрифт: {font_path}")
-                break
-            except:
-                pass
-        
-        if base_font is None:
-            base_font = ImageFont.load_default()
-            print("⚠️ Дефолтный шрифт")
-        
-        side_margin = min(max(int(img.width * 0.05), 20), 60)
-        target_width = img.width - (side_margin * 2)
-        safety_margin = 0.93
-        
-        unique_chars = ''.join(set(text.replace(' ', ''))) or "А"
-        char_width_target = (target_width / len(text)) * safety_margin
-        
-        test_sizes = [200, 180, 160, 140, 120, 110, 100, 95, 90, 85, 80, 75, 70, 68, 66, 64, 62, 60, 58, 56, 54, 52, 50, 48, 46, 44, 42, 40, 38, 36, 34, 32, 30, 28, 26, 24, 22, 20]
-        
-        optimal_font_size = 20
-        
-        for size in test_sizes:
-            font = base_font.font_variant(size=size)
-            
-            total_width = 0
-            for char in unique_chars[:5]:
-                bbox = draw.textbbox((0, 0), char, font=font)
-                total_width += bbox[2] - bbox[0]
-            
-            avg_char_width = total_width / min(len(unique_chars), 5)
-            
-            if avg_char_width <= char_width_target:
-                optimal_font_size = size
-                break
-        
-        font = base_font.font_variant(size=optimal_font_size)
-        
-        words = text.split()
-        lines = []
-        current_line = []
-        
-        for word in words:
-            test_line = ' '.join(current_line + [word])
-            bbox = draw.textbbox((0, 0), test_line, font=font)
-            if bbox[2] - bbox[0] <= target_width:
-                current_line.append(word)
-            else:
-                if current_line:
-                    lines.append(' '.join(current_line))
-                current_line = [word]
-        
-        if current_line:
-            lines.append(' '.join(current_line))
-        
-        y_offset = img.height - 60
-        outline_range = max(2, int(optimal_font_size * 0.03))
-        
-        for line in reversed(lines):
-            bbox = draw.textbbox((0, 0), line, font=font)
-            tw = bbox[2] - bbox[0]
-            th = bbox[3] - bbox[1]
-            x = (img.width - tw) // 2
-            y = y_offset - th
-            
-            for dx in range(-outline_range, outline_range + 1):
-                for dy in range(-outline_range, outline_range + 1):
-                    if dx != 0 or dy != 0:
-                        draw.text((x + dx, y + dy), line, font=font, fill='black')
-            
-            draw.text((x, y), line, font=font, fill='white')
-            y_offset = y - int(optimal_font_size * 0.2)
-        
-        full_output = BytesIO()
-        img.save(full_output, format='JPEG', quality=90, optimize=True)
-        full_output.seek(0)
-        
-        print(f"✅ Готово! Шрифт: {optimal_font_size}px")
-        return full_output
-        
-    except Exception as e:
-        print(f"❌ Ошибка: {e}")
-        return None
-
 @bot.message_handler(commands=['start', 'help'])
 def start_command(message):
     available_commands = list(PHRASES.keys())
@@ -716,7 +85,7 @@ def start_command(message):
     
     help_text = (
         '🎨 Привет! Я бот для случайных картинок.\n\n'
-        '📸 Как пользоваться:\n'
+        '📸 Как пользоваться (inline режим):\n'
         '• Просто имя бота — случайная картинка\n'
         '• `@randompikcha2_bot cats` — картинка по теме\n'
         '• `@randompikcha2_bot 3` — 3 картинки на выбор\n\n'
@@ -779,6 +148,7 @@ def inline_handler(inline_query):
     
     print(f"📨 Запрос: '{query_text}' от {user_id}")
     
+    # Умная задержка
     if not query_text:
         pass
     elif len(query_text) < 3:
@@ -802,6 +172,7 @@ def inline_handler(inline_query):
         original_text = query_text
         parts = query_text.lower().split()
         
+        # Ищем число в конце (количество картинок)
         if parts and parts[-1].isdigit():
             images_count = min(int(parts[-1]), 5)
             query_text = ' '.join(parts[:-1])
@@ -840,6 +211,7 @@ def inline_handler(inline_query):
                     text_to_add = None
                     print(f"  → просто мем без текста")
                 else:
+                    # Текст в кавычках: meme "привет"
                     if re.match(r'^".+"', ' '.join(parts[1:])):
                         text_match = re.search(r'"([^"]+)"', original_text)
                         if text_match:
@@ -850,18 +222,21 @@ def inline_handler(inline_query):
                             search_query = remaining if remaining else None
                             print(f"  → текст на меме: {text_to_add[:30]}...")
                     
+                    # randtext: meme randtext
                     elif parts[1] == 'randtext':
                         is_randtext = True
                         text_to_add = get_russian_phrase()
                         search_query = ' '.join(parts[2:]) if len(parts) > 2 else None
                         print(f"  → фраза на меме: {text_to_add[:30]}...")
                     
+                    # Категории фраз: meme papich, meme tehnik
                     elif parts[1] in PHRASES:
                         phrase_category = parts[1]
                         text_to_add = get_random_phrase(phrase_category)
                         search_query = ' '.join(parts[2:]) if len(parts) > 2 else None
                         print(f"  → категория на меме: {phrase_category} -> '{text_to_add[:30]}...'")
                     
+                    # Обычный поиск: meme кот
                     else:
                         search_query = ' '.join(parts[1:])
                         text_to_add = None
@@ -881,6 +256,7 @@ def inline_handler(inline_query):
                     text_to_add = None
                     print(f"  → просто GIF без текста")
                 else:
+                    # Текст в кавычках: gif "привет"
                     if re.match(r'^".+"', ' '.join(parts[1:])):
                         text_match = re.search(r'"([^"]+)"', original_text)
                         if text_match:
@@ -891,18 +267,21 @@ def inline_handler(inline_query):
                             search_query = remaining if remaining else None
                             print(f"  → текст на GIF: {text_to_add[:30]}...")
                     
+                    # randtext: gif randtext
                     elif parts[1] == 'randtext':
                         is_randtext = True
                         text_to_add = get_russian_phrase()
                         search_query = ' '.join(parts[2:]) if len(parts) > 2 else None
                         print(f"  → фраза на GIF: {text_to_add[:30]}...")
                     
+                    # Категории фраз: gif papich
                     elif parts[1] in PHRASES:
                         phrase_category = parts[1]
                         text_to_add = get_random_phrase(phrase_category)
                         search_query = ' '.join(parts[2:]) if len(parts) > 2 else None
                         print(f"  → категория на GIF: {phrase_category} -> '{text_to_add[:30]}...'")
                     
+                    # Обычный поиск: gif кот
                     else:
                         search_query = ' '.join(parts[1:])
                         text_to_add = None
@@ -910,18 +289,21 @@ def inline_handler(inline_query):
             
             # ФОТО
             else:
+                # randtext для фото
                 if parts and parts[0] == 'randtext':
                     is_randtext = True
                     print(f"  → режим randtext для фото")
                     text_to_add = get_russian_phrase()
                     search_query = ' '.join(parts[1:]) if len(parts) > 1 else None
                 
+                # Категории фраз для фото
                 elif parts and parts[0] in PHRASES:
                     phrase_category = parts[0]
                     text_to_add = get_random_phrase(phrase_category)
                     search_query = ' '.join(parts[1:]) if len(parts) > 1 else None
                     print(f"  → категория фото: {phrase_category} -> '{text_to_add[:30]}...'")
                 
+                # Текст в кавычках для фото
                 elif re.match(r'^".+"', query_text) or (parts and parts[0].startswith('"')):
                     text_match = re.search(r'"([^"]+)"', original_text)
                     if text_match:
@@ -932,6 +314,7 @@ def inline_handler(inline_query):
                         search_query = remaining if remaining else None
                         print(f"  → текст на фото: {text_to_add[:30]}...")
                 
+                # Обычный поиск для фото
                 elif query_text:
                     print(f"  → поиск фото: {query_text}")
                     search_query = query_text
@@ -1131,6 +514,7 @@ def inline_handler(inline_query):
         print(f"❌ Ошибка отправки: {e}")
         traceback.print_exc()
 
+# Эндпоинт для получения файлов
 @app.route('/image/<image_id>', methods=['GET', 'HEAD'])
 def serve_image(image_id):
     if image_id in temp_images:
@@ -1179,11 +563,11 @@ def index():
     gif_status = "✅ GIPHY" if GIPHY_API_KEY else "❌ Не настроен"
     emoji_count = len(ALL_EMOJIS)
     return (
-        f'🤖 Bot работает на Railway<br>'
+        f'🤖 Inline Bot работает на Railway<br>'
         f'📸 API фото: {", ".join(available_apis)}<br>'
         f'🎬 GIF API: {gif_status}<br>'
         f'🎲 Эмодзи в базе: {emoji_count}<br>'
-        f'🎭 Мемы: ✅ (Reddit, Imgflip, и др.)<br>'
+        f'🎭 Мемы: ✅<br>'
         f'📦 Файлов в памяти: {len(temp_images)}<br>'
         f'📝 Фраз: {sum(len(v) for v in PHRASES.values())}<br>'
         f'🌐 Домен: https://{hostname}'
@@ -1194,7 +578,7 @@ def health():
     return 'OK', 200
 
 if __name__ == '__main__':
-    print("🚀 Запуск бота...")
+    print("🚀 Запуск inline бота...")
     setup_webhook()
     app.run(host='0.0.0.0', port=PORT, debug=False)
 else:
