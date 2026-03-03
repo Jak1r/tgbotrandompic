@@ -14,6 +14,7 @@ import json
 import uuid
 import sys
 import traceback
+import hashlib  # для генерации стабильного хеша
 
 # ========== ДИАГНОСТИКА ==========
 import logging
@@ -27,9 +28,9 @@ logging.basicConfig(
 )
 
 # Принудительный flush для print
-print = lambda *args, **kwargs: __builtins__.print(*args, **kwargs, flush=True)
+# print = lambda *args, **kwargs: __builtins__.print(*args, **kwargs, flush=True)
 
-print("🔥🔥🔥 БОТ ЗАПУСКАЕТСЯ С ДИАГНОСТИКОЙ 🔥🔥🔥")
+# print("🔥🔥🔥 БОТ ЗАПУСКАЕТСЯ С ДИАГНОСТИКОЙ 🔥🔥🔥")
 print(f"Python version: {sys.version}")
 print(f"Working directory: {os.getcwd()}")
 # ========== КОНЕЦ ДИАГНОСТИКИ ==========
@@ -487,11 +488,26 @@ def handle_callback(call):
 
 @bot.inline_handler(lambda query: True)
 def inline_handler(inline_query):
-    print(f"🔥🔥🔥 INLINE HANDLER ВЫЗВАН")
-    print(f"🔥 Query: '{inline_query.query}'")
-    print(f"🔥 User ID: {inline_query.from_user.id}")
-
     query_text = inline_query.query.strip().lower()
+    user_id = inline_query.from_user.id
+    
+    print(f"📨 Запрос: '{query_text}' от {user_id}")
+    
+    # ===== УМНАЯ ЗАДЕРЖКА =====
+    # Если запрос пустой или очень короткий - минимальная задержка
+    if len(query_text) < 2:
+        time.sleep(0.3)
+    else:
+        # Генерируем "стабильную" задержку на основе текста и user_id
+        # Чтобы один и тот же запрос от одного пользователя имел одинаковую задержку
+        hash_input = f"{user_id}_{query_text}".encode()
+        hash_value = int(hashlib.md5(hash_input).hexdigest(), 16)
+        
+        # Задержка от 0.5 до 1.2 секунд в зависимости от хеша
+        delay = 0.5 + (hash_value % 7) / 10  # 0.5 + 0.0-0.7 = 0.5-1.2 сек
+        time.sleep(delay)
+    
+    # Остальной код функции...
     results = []
 
     try:
