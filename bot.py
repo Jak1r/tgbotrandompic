@@ -115,9 +115,9 @@ def get_random_gif(query=None):
     except Exception as e:
         print(f"❌ GIPHY ошибка: {e}")
         return None
-
+    
 def add_text_to_gif(gif_url, text):
-    """Накладывает текст на каждый кадр GIF-ки с масштабированием"""
+    """Накладывает текст на каждый кадр GIF-ки с правильным масштабированием"""
     try:
         print(f"🎨 Накладываем текст на GIF: '{text[:30]}...'")
         
@@ -146,19 +146,22 @@ def add_text_to_gif(gif_url, text):
         if base_font is None:
             base_font = ImageFont.load_default()
         
-        # ===== МАСШТАБИРОВАНИЕ ТЕКСТА =====
+        # ===== ПРАВИЛЬНОЕ МАСШТАБИРОВАНИЕ =====
         target_width = first_frame.width - 80  # отступы
         words = text.split()
         
-        # Подбираем размер шрифта
+        # Начинаем с МАКСИМАЛЬНОГО шрифта и УМЕНЬШАЕМ
+        max_font_size = int(first_frame.height * 0.15)  # 15% от высоты
         min_font_size = 20
-        max_font_size = int(first_frame.height * 0.15)
         optimal_font_size = min_font_size
+        optimal_lines = []
         
-        for size in range(max_font_size, min_font_size - 1, -5):
+        print(f"📏 Подбираем размер шрифта от {max_font_size} до {min_font_size}px")
+        
+        for size in range(max_font_size, min_font_size - 1, -2):  # УМЕНЬШАЕМ
             test_font = base_font.font_variant(size=size)
             
-            # Проверяем, помещается ли текст
+            # Разбиваем на строки с текущим размером
             lines = []
             current_line = []
             
@@ -175,28 +178,39 @@ def add_text_to_gif(gif_url, text):
             if current_line:
                 lines.append(' '.join(current_line))
             
-            if len(lines) <= 3:  # Не больше 3 строк
+            # Если помещается в разумное количество строк (≤3)
+            if len(lines) <= 3:
                 optimal_font_size = size
+                optimal_lines = lines
+                print(f"  ✅ Размер {size}px → {len(lines)} строк")
                 break
+            else:
+                print(f"  ❌ Размер {size}px → {len(lines)} строк (много)")
         
-        print(f"📏 Размер шрифта для GIF: {optimal_font_size}px")
+        print(f"📏 Итоговый размер шрифта: {optimal_font_size}px")
         font = base_font.font_variant(size=optimal_font_size)
         
-        # Разбиваем текст на строки с финальным шрифтом
-        lines = []
-        current_line = []
-        for word in words:
-            test_line = ' '.join(current_line + [word])
-            bbox = ImageDraw.Draw(first_frame).textbbox((0, 0), test_line, font=font)
-            if bbox[2] - bbox[0] <= target_width:
-                current_line.append(word)
-            else:
-                if current_line:
-                    lines.append(' '.join(current_line))
-                current_line = [word]
-        
-        if current_line:
-            lines.append(' '.join(current_line))
+        # Если не нашли подходящий (текст очень длинный), используем минимальный
+        if not optimal_lines:
+            print(f"⚠️ Текст очень длинный, используем минимальный размер {min_font_size}px")
+            optimal_font_size = min_font_size
+            font = base_font.font_variant(size=min_font_size)
+            
+            # Финальное разбиение
+            optimal_lines = []
+            current_line = []
+            for word in words:
+                test_line = ' '.join(current_line + [word])
+                bbox = ImageDraw.Draw(first_frame).textbbox((0, 0), test_line, font=font)
+                if bbox[2] - bbox[0] <= target_width:
+                    current_line.append(word)
+                else:
+                    if current_line:
+                        optimal_lines.append(' '.join(current_line))
+                    current_line = [word]
+            
+            if current_line:
+                optimal_lines.append(' '.join(current_line))
         
         # Обрабатываем каждый кадр
         durations = []
@@ -212,24 +226,24 @@ def add_text_to_gif(gif_url, text):
             frame_copy = frame_rgb.copy()
             draw = ImageDraw.Draw(frame_copy)
             
-            # Рисуем текст
+            # Рисуем текст снизу вверх
             y_offset = frame_copy.height - 60
             outline_range = max(2, int(optimal_font_size * 0.03))
             
-            for line in reversed(lines):
+            for line in reversed(optimal_lines):
                 bbox = draw.textbbox((0, 0), line, font=font)
                 tw = bbox[2] - bbox[0]
                 th = bbox[3] - bbox[1]
                 x = (frame_copy.width - tw) // 2
                 y = y_offset - th
                 
-                # Обводка
+                # Черная обводка
                 for dx in range(-outline_range, outline_range + 1):
                     for dy in range(-outline_range, outline_range + 1):
                         if dx != 0 or dy != 0:
                             draw.text((x + dx, y + dy), line, font=font, fill='black')
                 
-                # Текст
+                # Белый текст
                 draw.text((x, y), line, font=font, fill='white')
                 y_offset = y - int(optimal_font_size * 0.2)
             
@@ -248,14 +262,14 @@ def add_text_to_gif(gif_url, text):
         )
         output.seek(0)
         
-        print(f"✅ GIF готова, кадров: {len(frames)}, шрифт: {optimal_font_size}px")
+        print(f"✅ GIF готова, кадров: {len(frames)}, шрифт: {optimal_font_size}px, строк: {len(optimal_lines)}")
         return output
         
     except Exception as e:
         print(f"❌ Ошибка GIF: {e}")
         traceback.print_exc()
-        return None
-
+        return None   
+ 
 # Функция для получения фраз из Fucking Great Advice
 def get_russian_phrase():
     try:
@@ -627,24 +641,44 @@ def inline_handler(inline_query):
                 is_gif = True
                 print(f"  → режим GIF")
                 
-                # Получаем поисковый запрос
-                search_query = ' '.join(parts[1:]) if len(parts) > 1 else None
+                # Если после gif ничего нет
+                if len(parts) == 1:
+                    search_query = None
+                    text_to_add = None
+                    print(f"  → просто GIF без текста")
                 
-                # Проверяем, есть ли текст для наложения
-                if len(parts) > 1 and parts[1].startswith('"'):
-                    text_match = re.search(r'"([^"]+)"', original_text)
-                    if text_match:
-                        text_to_add = text_match.group(1)
-                        remaining = re.sub(r'"[^"]+"', '', original_text.replace('gif', '', 1)).strip()
-                        if remaining and remaining.split() and remaining.split()[-1].isdigit():
-                            remaining = ' '.join(remaining.split()[:-1])
-                        search_query = remaining if remaining else None
-                        print(f"  → текст на GIF: {text_to_add[:30]}...")
-                elif len(parts) > 1 and parts[1] == 'randtext':
-                    is_randtext = True
-                    text_to_add = get_russian_phrase()
-                    search_query = ' '.join(parts[2:]) if len(parts) > 2 else None
-                    print(f"  → фраза на GIF: {text_to_add[:30]}...")
+                # Проверяем разные варианты
+                else:
+                    # Текст в кавычках: gif "привет"
+                    if re.match(r'^".+"', ' '.join(parts[1:])):
+                        text_match = re.search(r'"([^"]+)"', original_text)
+                        if text_match:
+                            text_to_add = text_match.group(1)
+                            remaining = re.sub(r'"[^"]+"', '', original_text.replace('gif', '', 1)).strip()
+                            if remaining and remaining.split() and remaining.split()[-1].isdigit():
+                                remaining = ' '.join(remaining.split()[:-1])
+                            search_query = remaining if remaining else None
+                            print(f"  → текст на GIF: {text_to_add[:30]}...")
+                    
+                    # randtext: gif randtext
+                    elif parts[1] == 'randtext':
+                        is_randtext = True
+                        text_to_add = get_russian_phrase()
+                        search_query = ' '.join(parts[2:]) if len(parts) > 2 else None
+                        print(f"  → фраза на GIF: {text_to_add[:30]}...")
+                    
+                    # Категории фраз: gif papich, gif tehnik
+                    elif parts[1] in PHRASES:
+                        phrase_category = parts[1]
+                        text_to_add = get_random_phrase(phrase_category)
+                        search_query = ' '.join(parts[2:]) if len(parts) > 2 else None
+                        print(f"  → категория на GIF: {phrase_category} -> '{text_to_add[:30]}...'")
+                    
+                    # Обычный поиск: gif кот
+                    else:
+                        search_query = ' '.join(parts[1:])
+                        text_to_add = None
+                        print(f"  → поиск GIF по тегу: {search_query}")
             
             # randtext для фото
             elif parts and parts[1] == 'randtext':
