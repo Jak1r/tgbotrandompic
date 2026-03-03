@@ -254,7 +254,7 @@ def get_random_image(custom_query=None):
     print(f"Все API не дали результат для '{query}'")
     return None, None
 
-# ========== ФИНАЛЬНАЯ ВЕРСИЯ (ЗАПАС 7%) ==========
+# ========== ИСПРАВЛЕННАЯ ВЕРСИЯ (РЕАЛЬНЫЕ СИМВОЛЫ) ==========
 def add_text_to_image(image_url, text):
     try:
         print(f"🔥 add_text_to_image ВЫЗВАНА с текстом: '{text}'")
@@ -291,64 +291,60 @@ def add_text_to_image(image_url, text):
             base_font = ImageFont.load_default()
             print("⚠️ Используем дефолтный шрифт")
         
-        # ===== ПРОПОРЦИОНАЛЬНЫЕ ОТСТУПЫ С ЗАПАСОМ 7% =====
-        # Отступы: 5% от ширины с каждой стороны, но не меньше 20px и не больше 60px
+        # ===== ПРОПОРЦИОНАЛЬНЫЕ ОТСТУПЫ =====
         side_margin = min(max(int(img.width * 0.05), 20), 60)
         target_width = img.width - (side_margin * 2)
         
-        # ЗАПАС 7% (0.93) - оставляем немного места по краям
+        # ЗАПАС 7% (0.93)
         safety_margin = 0.93
         
-        text_without_spaces = text.replace(' ', '')
-        char_count = len(text_without_spaces)
+        # Получаем уникальные символы из текста для измерения
+        unique_chars = ''.join(set(text.replace(' ', '')))
+        if not unique_chars:
+            unique_chars = "А"
         
         print(f"📊 Параметры расчета:")
         print(f"  - Ширина картинки: {img.width}px")
         print(f"  - Отступы по бокам: {side_margin}px (5% от ширины)")
         print(f"  - Доступная ширина: {target_width}px")
         print(f"  - Запас: {int((1-safety_margin)*100)}%")
-        print(f"  - Количество символов (без пробелов): {char_count}")
+        print(f"  - Длина текста: {len(text)} символов")
+        print(f"  - Уникальных символов для измерения: {len(unique_chars)}")
         
-        # Рассчитываем идеальную ширину одного символа с запасом
-        if char_count > 0:
-            char_width_target = (target_width / char_count) * safety_margin
-            print(f"  - Целевая ширина символа: {char_width_target:.1f}px (с запасом)")
-            print(f"  - Макс. ширина без запаса: {(target_width / char_count):.1f}px")
-        else:
-            char_width_target = (target_width / 10) * safety_margin
+        # Рассчитываем целевую ширину символа
+        char_width_target = (target_width / len(text)) * safety_margin
+        print(f"  - Целевая ширина символа: {char_width_target:.1f}px")
         
-        # Тестируем разные размеры шрифта (детальная шкала)
+        # Тестируем разные размеры шрифта
         test_sizes = [200, 180, 160, 140, 120, 110, 100, 95, 90, 85, 80, 75, 70, 68, 66, 64, 62, 60, 58, 56, 54, 52, 50, 48, 46, 44, 42, 40, 38, 36, 34, 32, 30, 28, 26, 24, 22, 20]
         
         optimal_font_size = 20
-        optimal_lines = []
         
-        # Тестовая строка из самых широких символов (для консервативной оценки)
-        test_chars = "ШЩМЫФА"
-        
-        print(f"🔍 Подбор размера шрифта:")
+        print(f"🔍 Подбор размера шрифта (по уникальным символам '{unique_chars[:10]}...'):")
         for size in test_sizes:
             font = base_font.font_variant(size=size)
             
-            # Измеряем ширину тестовых символов
-            bbox = draw.textbbox((0, 0), test_chars, font=font)
-            test_width = bbox[2] - bbox[0]
-            avg_char_width = test_width / len(test_chars)
+            # Измеряем среднюю ширину уникальных символов из текста
+            total_width = 0
+            for char in unique_chars[:5]:  # берем первые 5 уникальных символов для скорости
+                bbox = draw.textbbox((0, 0), char, font=font)
+                total_width += bbox[2] - bbox[0]
             
-            print(f"  Размер {size:3d}px → средняя ширина символа: {avg_char_width:5.1f}px", end='')
+            avg_char_width = total_width / min(len(unique_chars), 5)
             
-            # Если средняя ширина символа помещается в целевую с запасом
+            print(f"  Размер {size:3d}px → ср. ширина символа: {avg_char_width:5.1f}px", end='')
+            
             if avg_char_width <= char_width_target:
-                print(f" ✅ ПОДХОДИТ (<= {char_width_target:.1f}px)")
+                print(f" ✅ ПОДХОДИТ")
                 optimal_font_size = size
                 break
             else:
-                print(f" ❌ (> {char_width_target:.1f}px)")
+                print(f" ❌")
         
         # Финальный шрифт
         font = base_font.font_variant(size=optimal_font_size)
         
-        # Разбиваем на строки по словам
+        # Разбиваем на строки
         words = text.split()
         lines = []
         current_line = []
@@ -366,16 +362,15 @@ def add_text_to_image(image_url, text):
         if current_line:
             lines.append(' '.join(current_line))
         
-        # Если получилось слишком много строк (>3), пробуем уменьшить шрифт
+        # Если слишком много строк, уменьшаем шрифт
         if len(lines) > 3:
-            print(f"⚠️ Получилось {len(lines)} строк, ищем меньший размер...")
+            print(f"⚠️ {len(lines)} строк, ищем меньший размер...")
             current_index = test_sizes.index(optimal_font_size) if optimal_font_size in test_sizes else -1
             
             for next_index in range(current_index + 1, len(test_sizes)):
                 next_size = test_sizes[next_index]
                 test_font = base_font.font_variant(size=next_size)
                 
-                # Проверяем, сколько строк получится с этим размером
                 test_lines = []
                 test_current = []
                 
@@ -392,8 +387,6 @@ def add_text_to_image(image_url, text):
                 if test_current:
                     test_lines.append(' '.join(test_current))
                 
-                print(f"  Размер {next_size}px → {len(test_lines)} строк")
-                
                 if len(test_lines) <= 3:
                     optimal_font_size = next_size
                     font = test_font
@@ -405,10 +398,15 @@ def add_text_to_image(image_url, text):
         for i, line in enumerate(lines, 1):
             print(f"  Строка {i}: '{line}'")
         
-        # Рисуем текст снизу вверх
-        y_offset = img.height - 60
+        # Рассчитываем реальное заполнение ширины
+        if lines:
+            bbox = draw.textbbox((0, 0), lines[0], font=font)
+            actual_width = bbox[2] - bbox[0]
+            fill_percentage = (actual_width / target_width) * 100
+            print(f"📊 Заполнение ширины: {fill_percentage:.1f}%")
         
-        # Толщина обводки зависит от размера шрифта
+        # Рисуем текст
+        y_offset = img.height - 60
         outline_range = max(2, int(optimal_font_size * 0.03))
         print(f"✏️ Толщина обводки: {outline_range}px")
         
@@ -419,32 +417,27 @@ def add_text_to_image(image_url, text):
             x = (img.width - tw) // 2
             y = y_offset - th
             
-            # Рисуем обводку
             for dx in range(-outline_range, outline_range + 1):
                 for dy in range(-outline_range, outline_range + 1):
                     if dx != 0 or dy != 0:
                         draw.text((x + dx, y + dy), line, font=font, fill='black')
             
-            # Рисуем текст
             draw.text((x, y), line, font=font, fill='white')
-            y_offset = y - int(optimal_font_size * 0.2)  # отступ между строками = 20% от шрифта
+            y_offset = y - int(optimal_font_size * 0.2)
         
-        # Сохраняем
         full_output = BytesIO()
         img.save(full_output, format='JPEG', quality=90, optimize=True)
         full_output.seek(0)
         
         print(f"✅ Готово! Размер шрифта: {optimal_font_size}px")
-        print(f"  - Средняя ширина символа: {(target_width / char_count):.1f}px (максимум)")
-        print(f"  - С запасом 7%: {char_width_target:.1f}px")
-        print(f"  - Строк: {len(lines)}")
+        print(f"  - Цель по ширине: {char_width_target:.1f}px на символ")
         return full_output
         
     except Exception as e:
         print(f"❌ ОШИБКА: {e}")
         traceback.print_exc()
         return None
-# ========== КОНЕЦ ФИНАЛЬНОЙ ВЕРСИИ ==========
+# ========== КОНЕЦ ИСПРАВЛЕННОЙ ВЕРСИИ ==========
 
 @bot.message_handler(commands=['start', 'help'])
 def start_command(message):
