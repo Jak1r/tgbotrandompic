@@ -1,6 +1,6 @@
 import os
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, InlineQueryResultArticle, InputTextMessageContent
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, InlineQueryResultArticle, InputTextMessageContent, ReplyKeyboardMarkup, KeyboardButton
 from flask import Flask, request, abort, send_file
 from dotenv import load_dotenv
 import time
@@ -11,7 +11,11 @@ import sys
 import traceback
 import hashlib
 import re
+import random
+import requests
 from io import BytesIO
+from datetime import datetime, timedelta
+import pytz
 
 # Импортируем общую логику
 from shared_logic import *
@@ -22,20 +26,23 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 PORT = int(os.getenv('PORT', 8080))
 
 if not TELEGRAM_TOKEN:
-    raise ValueError("TELEGRAM_TOKEN не задан в переменных окружения")
+    raise ValueError("TELEGRAM_TOKEN не задан")
 
-print(f"🚀 Запуск inline бота...")
-print(f"📸 API фото: {', '.join(available_apis)}")
-if GIPHY_API_KEY:
-    print(f"🎬 GIPHY API: доступен")
-print(f"🎲 Эмодзи в базе: {len(ALL_EMOJIS)}")
+print("🚀 Запуск объединенного бота...")
+print(f"📸 API фото: {', '.join(available_apis) if 'available_apis' in dir() else 'не загружены'}")
+print(f"🎬 GIPHY API: {'доступен' if GIPHY_API_KEY else 'не настроен'}")
+print(f"🎭 Категории фраз: {list(PHRASES.keys()) if PHRASES else 'нет'}")
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
 app = Flask(__name__)
 
+# ========== ОБЩИЕ ПЕРЕМЕННЫЕ ==========
 current_api_index = 0
 temp_images = {}
+user_states = {}  # Для диалогов в личных сообщениях
+user_emojis = {}  # Для эмодзи дня
 
+# ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
 def generate_unique_id(prefix="img"):
     timestamp = int(time.time() * 1000)
     random_part = random.randint(10000, 99999)
@@ -43,7 +50,6 @@ def generate_unique_id(prefix="img"):
     return f"{prefix}_{timestamp}_{random_part}_{unique_str}"
 
 def cleanup_temp_images():
-    """Очистка старых изображений"""
     while True:
         time.sleep(600)
         now = time.time()
@@ -55,98 +61,259 @@ def cleanup_temp_images():
 
 threading.Thread(target=cleanup_temp_images, daemon=True).start()
 
-def setup_webhook():
-    hostname = os.getenv("RAILWAY_PUBLIC_DOMAIN")
-    if not hostname:
-        print("RAILWAY_PUBLIC_DOMAIN не найден → локальный режим")
-        return
+# ========== ФУНКЦИИ ДЛЯ ЛИЧНЫХ СООБЩЕНИЙ ==========
+def create_main_keyboard():
+    """Создает главную клавиатуру"""
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    btn1 = KeyboardButton("🖼️ Случайное фото")
+    btn2 = KeyboardButton("🎭 Случайный мем")
+    btn3 = KeyboardButton("🎬 Случайная GIF")
+    btn4 = KeyboardButton("🎲 Эмодзи дня")
+    btn5 = KeyboardButton("📝 Текст на фото")
+    btn6 = KeyboardButton("📖 Помощь")
+    markup.add(btn1, btn2, btn3, btn4, btn5, btn6)
+    return markup
 
-    webhook_path = f"/{TELEGRAM_TOKEN}"
-    webhook_url = f"https://{hostname}{webhook_path}"
+def create_text_keyboard():
+    """Создает клавиатуру для выбора текста"""
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    
+    categories = list(PHRASES.keys()) if PHRASES else []
+    
+    buttons = []
+    buttons.append(KeyboardButton("✏️ Свой текст"))
+    buttons.append(KeyboardButton("🎲 Случайная фраза"))
+    
+    for category in categories:
+        buttons.append(KeyboardButton(f"🎭 Категория {category}"))
+    
+    buttons.append(KeyboardButton("◀️ Назад"))
+    markup.add(*buttons)
+    return markup
 
+def send_photo_with_text(chat_id, text, photo_type='photo', query=None, count=1):
+    """Отправляет фото/мем/GIF с текстом"""
     try:
-        current = bot.get_webhook_info()
-        if current.url != webhook_url:
-            bot.remove_webhook()
-            time.sleep(1)
-            success = bot.set_webhook(url=webhook_url)
-            print(f"Webhook {'установлен' if success else 'ОШИБКА'}: {webhook_url}")
-        else:
-            print(f"Webhook уже установлен: {webhook_url}")
+        if photo_type == 'gif':
+            for i in range(count):
+                url = get_random_gif(query)
+                if url:
+                    if text:
+                        full = add_text_to_gif(url, text)
+                    else:
+                        r = requests.get(url, timeout=10)
+                        full = BytesIO(r.content)
+                    
+                    if full:
+                        caption = f"GIF {i+1}" if count > 1 else ""
+                        if caption:
+                            caption += "\n\nPowered by GIPHY"
+                        else:
+                            caption = "Powered by GIPHY"
+                        bot.send_animation(chat_id, full, caption=caption)
+                else:
+                    bot.send_message(chat_id, "❌ GIF временно недоступны")
+        
+        elif photo_type == 'meme':
+            for i in range(count):
+                url, thumb = get_random_meme(query)
+                if url:
+                    if text:
+                        full = add_text_to_image(url, text)
+                    else:
+                        r = requests.get(url, timeout=10)
+                        full = BytesIO(r.content)
+                    
+                    if full:
+                        bot.send_photo(chat_id, full, caption=f"Мем {i+1}" if count > 1 else None)
+        
+        else:  # фото
+            for i in range(count):
+                url, thumb = get_random_image(query)
+                if url:
+                    if text:
+                        full = add_text_to_image(url, text)
+                    else:
+                        r = requests.get(url, timeout=10)
+                        full = BytesIO(r.content)
+                    
+                    if full:
+                        bot.send_photo(chat_id, full, caption=f"Фото {i+1}" if count > 1 else None)
+                    
     except Exception as e:
-        print(f"Webhook error: {e}")
+        bot.send_message(chat_id, f"❌ Ошибка: {e}")
 
+# ========== ЭМОДЗИ ДНЯ ==========
+def get_moscow_midnight_timestamp():
+    tz = pytz.timezone('Europe/Moscow')
+    now = datetime.now(tz)
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return midnight.timestamp()
+
+def get_user_emoji(user_id):
+    current_time = time.time()
+    today_midnight = get_moscow_midnight_timestamp()
+    
+    if user_id in user_emojis:
+        emoji, expiry = user_emojis[user_id]
+        if expiry >= today_midnight:
+            return emoji
+    
+    new_emoji = random.choice(ALL_EMOJIS)
+    next_midnight = today_midnight + 86400
+    user_emojis[user_id] = (new_emoji, next_midnight)
+    return new_emoji
+
+# ========== ОБРАБОТЧИКИ КОМАНД ==========
 @bot.message_handler(commands=['start', 'help'])
-def start_command(message):
-    available_commands = list(PHRASES.keys())
-    commands_text = '\n'.join([f'• `@randompikcha2_bot {cmd}` — фраза из "{cmd}"' for cmd in available_commands])
-    
-    gif_help = "• `@randompikcha2_bot gif` — случайная гифка\n" if GIPHY_API_KEY else ""
-    
+def send_welcome(message):
+    """Обрабатывает /start и /help"""
     help_text = (
         '🎨 Привет! Я бот для случайных картинок.\n\n'
-        '📸 Как пользоваться (inline режим):\n'
-        '• Просто имя бота — случайная картинка\n'
-        '• `@randompikcha2_bot cats` — картинка по теме\n'
-        '• `@randompikcha2_bot 3` — 3 картинки на выбор\n\n'
-        '📝 Текст на картинке:\n'
-        '• `@randompikcha2_bot "Привет мир"` — картинка с текстом\n'
-        '• `@randompikcha2_bot "Привет" cats 3` — 3 картинки котов с текстом\n\n'
-        '🎭 Фразы:\n'
-        f'{commands_text}\n\n'
-        '🎲 Случайные фразы:\n'
-        '• `@randompikcha2_bot randtext` — картинка + осмысленная фраза\n'
-        '• `@randompikcha2_bot randtext природа 2` — 2 картинки природы с фразой\n\n'
-        '🎭 Мемы:\n'
-        '• `@randompikcha2_bot meme` — случайный мем\n'
-        '• `@randompikcha2_bot meme 3` — 3 мема на выбор\n'
-        '• `@randompikcha2_bot meme "текст"` — мем с текстом\n'
-        '• `@randompikcha2_bot meme randtext` — мем с фразой\n'
-        '• `@randompikcha2_bot meme papich` — мем с фразой из категории\n'
-        '• `@randompikcha2_bot meme кот 2` — 2 мема про котов\n\n'
-        '🎲 Эмодзи дня:\n'
-        '• `@randompikcha2_bot emoji` — твоё персональное эмодзи на сегодня\n'
-        '  (обновляется каждый день в 00:00 по Москве)\n\n'
+        '📸 **Как пользоваться:**\n'
+        '• В **личных сообщениях** используй кнопки ниже 👇\n'
+        '• В **любом чате** через @ упомяни меня с запросом\n\n'
+        '📝 **Примеры inline запросов:**\n'
+        '• `@randompikcha2_bot` - случайное фото\n'
+        '• `@randompikcha2_bot кот 3` - 3 фото котов\n'
+        '• `@randompikcha2_bot "привет"` - фото с текстом\n'
+        '• `@randompikcha2_bot meme` - случайный мем\n'
+        '• `@randompikcha2_bot gif` - случайная GIF\n'
+        '• `@randompikcha2_bot emoji` - эмодзи дня\n\n'
+        '🎭 **Категории фраз:**\n' +
+        '\n'.join([f'• `{cmd}`' for cmd in PHRASES.keys()]) +
+        '\n\nИли просто жми кнопки! 👇'
     )
     
-    if gif_help:
-        help_text += '🎬 Гифки:\n' + gif_help + '\n'
-    
-    help_text += f'📸 API фото: {", ".join(available_apis)}'
-    if GIPHY_API_KEY:
-        help_text += '\n🎬 GIPHY: ✅ (100 запросов/час)'
-    
-    bot.reply_to(message, help_text, parse_mode='Markdown')
+    bot.send_message(
+        message.chat.id, 
+        help_text, 
+        reply_markup=create_main_keyboard(),
+        parse_mode='Markdown'
+    )
 
+# ========== ОБРАБОТЧИКИ КНОПОК ==========
+@bot.message_handler(func=lambda message: message.text == "🖼️ Случайное фото")
+def handle_random_photo(message):
+    bot.send_message(message.chat.id, "🔍 Ищу случайное фото...")
+    send_photo_with_text(message.chat.id, None, 'photo')
+
+@bot.message_handler(func=lambda message: message.text == "🎭 Случайный мем")
+def handle_random_meme(message):
+    bot.send_message(message.chat.id, "🔍 Ищу случайный мем...")
+    send_photo_with_text(message.chat.id, None, 'meme')
+
+@bot.message_handler(func=lambda message: message.text == "🎬 Случайная GIF")
+def handle_random_gif(message):
+    bot.send_message(message.chat.id, "🔍 Ищу случайную GIF...")
+    send_photo_with_text(message.chat.id, None, 'gif')
+
+@bot.message_handler(func=lambda message: message.text == "🎲 Эмодзи дня")
+def handle_emoji_button(message):
+    emoji = get_user_emoji(message.from_user.id)
+    phrase = random.choice(EMOJI_PHRASES).format(emoji=emoji)
+    bot.send_message(message.chat.id, phrase)
+
+@bot.message_handler(func=lambda message: message.text == "📝 Текст на фото")
+def handle_text_menu(message):
+    bot.send_message(message.chat.id, "Выберите тип текста:", reply_markup=create_text_keyboard())
+
+@bot.message_handler(func=lambda message: message.text == "📖 Помощь")
+def handle_help_button(message):
+    send_welcome(message)
+
+@bot.message_handler(func=lambda message: message.text == "◀️ Назад")
+def handle_back(message):
+    bot.send_message(message.chat.id, "Главное меню:", reply_markup=create_main_keyboard())
+
+@bot.message_handler(func=lambda message: message.text == "✏️ Свой текст")
+def handle_custom_text(message):
+    msg = bot.send_message(
+        message.chat.id, 
+        "📝 Введите текст в кавычках, например:\n\"Привет мир\"\n\nМожно добавить тему и количество:\n\"Привет\" кот 3"
+    )
+    user_states[message.from_user.id] = {'state': 'waiting_for_custom_text'}
+
+@bot.message_handler(func=lambda message: message.text == "🎲 Случайная фраза")
+def handle_random_phrase_button(message):
+    phrase = get_russian_phrase()
+    msg = bot.send_message(
+        message.chat.id, 
+        f"🎲 Фраза: {phrase}\n\nСколько фото сделать? (1-5)"
+    )
+    user_states[message.from_user.id] = {'state': 'waiting_for_phrase_count', 'phrase': phrase}
+
+# Динамические обработчики для категорий
+for category in PHRASES.keys():
+    @bot.message_handler(func=lambda message, cat=category: message.text == f"🎭 Категория {cat}")
+    def handle_category(message, cat=category):
+        phrase = get_random_phrase(cat)
+        msg = bot.send_message(
+            message.chat.id, 
+            f"🎭 Фраза: {phrase}\n\nСколько фото сделать? (1-5)"
+        )
+        user_states[message.from_user.id] = {'state': 'waiting_for_category_count', 'phrase': phrase}
+
+# ========== ОБРАБОТКА ДИАЛОГОВ ==========
 @bot.message_handler(func=lambda message: True)
-def handle_mention(message):
-    bot_username = bot.get_me().username
-    if f'@{bot_username}' in message.text:
-        markup = InlineKeyboardMarkup()
-        button = InlineKeyboardButton('📸 Случайная картинка', callback_data='send_random_img')
-        markup.add(button)
-        bot.reply_to(message, 'Что хочешь?', reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda call: True)
-def handle_callback(call):
-    if call.data == 'send_random_img':
-        bot.answer_callback_query(call.id, "Загружаю...")
-        image_url, _ = get_random_image()
-        if image_url:
+def handle_all_messages(message):
+    user_id = message.from_user.id
+    
+    # Проверяем, есть ли активное состояние
+    if user_id in user_states:
+        state = user_states[user_id]
+        
+        if state.get('state') in ['waiting_for_phrase_count', 'waiting_for_category_count']:
             try:
-                bot.send_photo(call.message.chat.id, image_url)
-            except Exception as e:
-                bot.send_message(call.message.chat.id, '❌ Не удалось отправить')
-                print(f"Ошибка фото: {e}")
-        else:
-            bot.send_message(call.message.chat.id, '❌ Картинка не найдена')
+                count = 1
+                if message.text.isdigit():
+                    count = min(int(message.text), 5)
+                phrase = state.get('phrase', '')
+                bot.send_message(message.chat.id, f"🖼️ Генерирую {count} фото...")
+                send_photo_with_text(message.chat.id, phrase, 'photo', None, count)
+                del user_states[user_id]
+            except:
+                bot.send_message(message.chat.id, "❌ Ошибка, попробуйте снова")
+                del user_states[user_id]
+        
+        elif state.get('state') == 'waiting_for_custom_text':
+            try:
+                text = message.text.strip()
+                parts = text.lower().split()
+                count = 1
+                
+                if parts and parts[-1].isdigit():
+                    count = min(int(parts[-1]), 5)
+                    text_without_count = ' '.join(parts[:-1])
+                else:
+                    text_without_count = text
+                
+                text_match = re.search(r'"([^"]+)"', text_without_count)
+                if text_match:
+                    text_to_add = text_match.group(1)
+                    remaining = re.sub(r'"[^"]+"', '', text_without_count).strip()
+                    
+                    bot.send_message(message.chat.id, f"🖼️ Генерирую {count} фото...")
+                    send_photo_with_text(message.chat.id, text_to_add, 'photo', remaining if remaining else None, count)
+                else:
+                    bot.send_message(message.chat.id, "❌ Нужно использовать кавычки! Пример: \"Привет\"")
+                
+                del user_states[user_id]
+            except:
+                bot.send_message(message.chat.id, "❌ Ошибка, попробуйте снова")
+                del user_states[user_id]
+    
+    else:
+        # Обычный текст - показываем клавиатуру
+        bot.send_message(message.chat.id, "Используйте кнопки ниже 👇", reply_markup=create_main_keyboard())
 
+# ========== INLINE РЕЖИМ ==========
 @bot.inline_handler(lambda query: True)
 def inline_handler(inline_query):
     query_text = inline_query.query.strip()
     user_id = inline_query.from_user.id
     
-    print(f"📨 Запрос: '{query_text}' от {user_id}")
+    print(f"📨 Inline запрос: '{query_text}' от {user_id}")
     
     # Умная задержка
     if not query_text:
@@ -172,7 +339,7 @@ def inline_handler(inline_query):
         original_text = query_text
         parts = query_text.lower().split()
         
-        # Ищем число в конце (количество картинок)
+        # Ищем число в конце
         if parts and parts[-1].isdigit():
             images_count = min(int(parts[-1]), 5)
             query_text = ' '.join(parts[:-1])
@@ -211,7 +378,6 @@ def inline_handler(inline_query):
                     text_to_add = None
                     print(f"  → просто мем без текста")
                 else:
-                    # Текст в кавычках: meme "привет"
                     if re.match(r'^".+"', ' '.join(parts[1:])):
                         text_match = re.search(r'"([^"]+)"', original_text)
                         if text_match:
@@ -222,21 +388,18 @@ def inline_handler(inline_query):
                             search_query = remaining if remaining else None
                             print(f"  → текст на меме: {text_to_add[:30]}...")
                     
-                    # randtext: meme randtext
                     elif parts[1] == 'randtext':
                         is_randtext = True
                         text_to_add = get_russian_phrase()
                         search_query = ' '.join(parts[2:]) if len(parts) > 2 else None
                         print(f"  → фраза на меме: {text_to_add[:30]}...")
                     
-                    # Категории фраз: meme papich, meme tehnik
                     elif parts[1] in PHRASES:
                         phrase_category = parts[1]
                         text_to_add = get_random_phrase(phrase_category)
                         search_query = ' '.join(parts[2:]) if len(parts) > 2 else None
                         print(f"  → категория на меме: {phrase_category} -> '{text_to_add[:30]}...'")
                     
-                    # Обычный поиск: meme кот
                     else:
                         search_query = ' '.join(parts[1:])
                         text_to_add = None
@@ -256,7 +419,6 @@ def inline_handler(inline_query):
                     text_to_add = None
                     print(f"  → просто GIF без текста")
                 else:
-                    # Текст в кавычках: gif "привет"
                     if re.match(r'^".+"', ' '.join(parts[1:])):
                         text_match = re.search(r'"([^"]+)"', original_text)
                         if text_match:
@@ -267,21 +429,18 @@ def inline_handler(inline_query):
                             search_query = remaining if remaining else None
                             print(f"  → текст на GIF: {text_to_add[:30]}...")
                     
-                    # randtext: gif randtext
                     elif parts[1] == 'randtext':
                         is_randtext = True
                         text_to_add = get_russian_phrase()
                         search_query = ' '.join(parts[2:]) if len(parts) > 2 else None
                         print(f"  → фраза на GIF: {text_to_add[:30]}...")
                     
-                    # Категории фраз: gif papich
                     elif parts[1] in PHRASES:
                         phrase_category = parts[1]
                         text_to_add = get_random_phrase(phrase_category)
                         search_query = ' '.join(parts[2:]) if len(parts) > 2 else None
                         print(f"  → категория на GIF: {phrase_category} -> '{text_to_add[:30]}...'")
                     
-                    # Обычный поиск: gif кот
                     else:
                         search_query = ' '.join(parts[1:])
                         text_to_add = None
@@ -289,21 +448,18 @@ def inline_handler(inline_query):
             
             # ФОТО
             else:
-                # randtext для фото
                 if parts and parts[0] == 'randtext':
                     is_randtext = True
                     print(f"  → режим randtext для фото")
                     text_to_add = get_russian_phrase()
                     search_query = ' '.join(parts[1:]) if len(parts) > 1 else None
                 
-                # Категории фраз для фото
                 elif parts and parts[0] in PHRASES:
                     phrase_category = parts[0]
                     text_to_add = get_random_phrase(phrase_category)
                     search_query = ' '.join(parts[1:]) if len(parts) > 1 else None
                     print(f"  → категория фото: {phrase_category} -> '{text_to_add[:30]}...'")
                 
-                # Текст в кавычках для фото
                 elif re.match(r'^".+"', query_text) or (parts and parts[0].startswith('"')):
                     text_match = re.search(r'"([^"]+)"', original_text)
                     if text_match:
@@ -314,7 +470,6 @@ def inline_handler(inline_query):
                         search_query = remaining if remaining else None
                         print(f"  → текст на фото: {text_to_add[:30]}...")
                 
-                # Обычный поиск для фото
                 elif query_text:
                     print(f"  → поиск фото: {query_text}")
                     search_query = query_text
@@ -364,7 +519,7 @@ def inline_handler(inline_query):
                         gif_width=480,
                         gif_height=360,
                         title=f"GIF {i+1}" + (f": {text_to_add[:20]}..." if text_to_add else ""),
-                        caption="Powered by GIPHY"  # 👈 Добавьте эту строку
+                        caption="Powered by GIPHY"
                     )
                     results.append(result)
             
@@ -515,7 +670,7 @@ def inline_handler(inline_query):
         print(f"❌ Ошибка отправки: {e}")
         traceback.print_exc()
 
-# Эндпоинт для получения файлов
+# ========== ЭНДПОИНТ ДЛЯ ФАЙЛОВ ==========
 @app.route('/image/<image_id>', methods=['GET', 'HEAD'])
 def serve_image(image_id):
     if image_id in temp_images:
@@ -545,6 +700,24 @@ def serve_image(image_id):
         
     abort(404)
 
+# ========== ВЕБХУК ==========
+def setup_webhook():
+    hostname = os.getenv("RAILWAY_PUBLIC_DOMAIN")
+    if not hostname:
+        print("Локальный режим")
+        return
+
+    webhook_path = f"/{TELEGRAM_TOKEN}"
+    webhook_url = f"https://{hostname}{webhook_path}"
+
+    try:
+        bot.remove_webhook()
+        time.sleep(1)
+        success = bot.set_webhook(url=webhook_url)
+        print(f"✅ Webhook установлен: {webhook_url}")
+    except Exception as e:
+        print(f"❌ Ошибка webhook: {e}")
+
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
@@ -554,24 +727,22 @@ def webhook():
             bot.process_new_updates([update])
             return 'OK', 200
         except Exception as e:
-            print(f"Ошибка обработки: {e}")
+            print(f"❌ Ошибка обработки: {e}")
             return 'Error', 500
     abort(403)
 
 @app.route('/')
 def index():
-    hostname = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost")
-    gif_status = "✅ GIPHY" if GIPHY_API_KEY else "❌ Не настроен"
-    emoji_count = len(ALL_EMOJIS)
+    gif_status = "✅ Доступен" if GIPHY_API_KEY else "❌ Не настроен"
+    categories = list(PHRASES.keys()) if PHRASES else []
     return (
-        f'🤖 Inline Bot работает на Railway<br>'
+        f'🎨 Объединенный бот работает!<br>'
         f'📸 API фото: {", ".join(available_apis)}<br>'
-        f'🎬 GIF API: {gif_status}<br>'
-        f'🎲 Эмодзи в базе: {emoji_count}<br>'
-        f'🎭 Мемы: ✅<br>'
+        f'🎬 GIPHY: {gif_status}<br>'
+        f'🎭 Категории фраз: {", ".join(categories) if categories else "нет"}<br>'
+        f'🎲 Эмодзи в базе: {len(ALL_EMOJIS)}<br>'
         f'📦 Файлов в памяти: {len(temp_images)}<br>'
-        f'📝 Фраз: {sum(len(v) for v in PHRASES.values())}<br>'
-        f'🌐 Домен: https://{hostname}'
+        f'👥 Пользователей с эмодзи: {len(user_emojis)}'
     ), 200
 
 @app.route('/health')
@@ -579,8 +750,8 @@ def health():
     return 'OK', 200
 
 if __name__ == '__main__':
-    print("🚀 Запуск inline бота...")
     setup_webhook()
+    print(f"🚀 Сервер запущен на порту {PORT}")
     app.run(host='0.0.0.0', port=PORT, debug=False)
 else:
     setup_webhook()
