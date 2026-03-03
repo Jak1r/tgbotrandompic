@@ -29,9 +29,10 @@ if not TELEGRAM_TOKEN:
     raise ValueError("TELEGRAM_TOKEN не задан")
 
 print("🚀 Запуск объединенного бота...")
-print(f"📸 API фото: {', '.join(available_apis) if 'available_apis' in dir() else 'не загружены'}")
+print(f"📸 API фото: {', '.join(available_apis)}")
 print(f"🎬 GIPHY API: {'доступен' if GIPHY_API_KEY else 'не настроен'}")
 print(f"🎭 Категории фраз: {list(PHRASES.keys()) if PHRASES else 'нет'}")
+print(f"🎲 Эмодзи в базе: {len(ALL_EMOJIS)}")
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
 app = Flask(__name__)
@@ -40,7 +41,6 @@ app = Flask(__name__)
 current_api_index = 0
 temp_images = {}
 user_states = {}  # Для диалогов в личных сообщениях
-user_emojis = {}  # Для эмодзи дня
 
 # ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
 def generate_unique_id(prefix="img"):
@@ -142,27 +142,6 @@ def send_photo_with_text(chat_id, text, photo_type='photo', query=None, count=1)
                     
     except Exception as e:
         bot.send_message(chat_id, f"❌ Ошибка: {e}")
-
-# ========== ЭМОДЗИ ДНЯ ==========
-def get_moscow_midnight_timestamp():
-    tz = pytz.timezone('Europe/Moscow')
-    now = datetime.now(tz)
-    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    return midnight.timestamp()
-
-def get_user_emoji(user_id):
-    current_time = time.time()
-    today_midnight = get_moscow_midnight_timestamp()
-    
-    if user_id in user_emojis:
-        emoji, expiry = user_emojis[user_id]
-        if expiry >= today_midnight:
-            return emoji
-    
-    new_emoji = random.choice(ALL_EMOJIS)
-    next_midnight = today_midnight + 86400
-    user_emojis[user_id] = (new_emoji, next_midnight)
-    return new_emoji
 
 # ========== ОБРАБОТЧИКИ КОМАНД ==========
 @bot.message_handler(commands=['start', 'help'])
@@ -318,6 +297,7 @@ def inline_handler(inline_query):
     # Умная задержка
     if not query_text:
         print(f"  → пустой запрос, показываем меню")
+        results = []
         
         # 1. Случайная картинка
         result1 = InlineQueryResultArticle(
@@ -365,9 +345,9 @@ def inline_handler(inline_query):
         )
         results.append(result3)
 
-        # 5. Эмодзи дня
+        # 4. Эмодзи дня
         emoji = get_user_emoji(user_id)
-        result5 = InlineQueryResultArticle(
+        result4 = InlineQueryResultArticle(
             id=generate_unique_id("menu_emoji"),
             title="🎲 Эмодзи дня",
             description=f"Твоё эмодзи на сегодня: {emoji}",
@@ -379,15 +359,14 @@ def inline_handler(inline_query):
             thumbnail_width=200,
             thumbnail_height=133
         )
-        results.append(result5)
+        results.append(result4)
         
-        # 6. Случайная категория фраз
+        # 5. Случайная категория фраз
         if PHRASES:
-            # Выбираем случайную категорию
             random_category = random.choice(list(PHRASES.keys()))
             random_phrase = get_random_phrase(random_category)
             
-            result6 = InlineQueryResultArticle(
+            result5 = InlineQueryResultArticle(
                 id=generate_unique_id("menu_random_category"),
                 title="🎭 Случайная категория фраз",
                 description=f"[{random_category}] {random_phrase[:50]}...",
@@ -399,9 +378,9 @@ def inline_handler(inline_query):
                 thumbnail_width=200,
                 thumbnail_height=133
             )
-            results.append(result6)
+            results.append(result5)
         
-        # 7. Инструкция по использованию
+        # 6. Инструкция
         help_text = (
             "📖 **Как пользоваться:**\n\n"
             "**Основные команды:**\n"
@@ -446,15 +425,11 @@ def inline_handler(inline_query):
             return
         except Exception as e:
             print(f"❌ Ошибка отправки меню: {e}")
+            traceback.print_exc()
             return
 
     elif len(query_text) < 3:
         time.sleep(0.2)
-    else:
-        hash_input = f"{user_id}_{query_text}".encode()
-        hash_value = int(hashlib.md5(hash_input).hexdigest(), 16)
-        delay = 0.3 + (hash_value % 5) / 10
-        time.sleep(delay)
     
     results = []
 
