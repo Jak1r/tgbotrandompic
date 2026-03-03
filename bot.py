@@ -117,7 +117,7 @@ def get_random_gif(query=None):
         return None
 
 def add_text_to_gif(gif_url, text):
-    """Накладывает текст на каждый кадр GIF-ки"""
+    """Накладывает текст на каждый кадр GIF-ки с масштабированием"""
     try:
         print(f"🎨 Накладываем текст на GIF: '{text[:30]}...'")
         
@@ -125,11 +125,10 @@ def add_text_to_gif(gif_url, text):
         r = requests.get(gif_url, timeout=10)
         gif = Image.open(BytesIO(r.content))
         
-        # Получаем информацию о длительности кадров
-        durations = []
-        frames = []
+        # Получаем размер первого кадра для расчета шрифта
+        first_frame = gif.convert('RGB')
         
-        # Загружаем шрифт
+        # Загружаем шрифт для измерения
         font_paths = [
             '/app/fonts/Impact.ttf',
             '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
@@ -138,7 +137,7 @@ def add_text_to_gif(gif_url, text):
         base_font = None
         for font_path in font_paths:
             try:
-                base_font = ImageFont.truetype(font_path, 40)
+                base_font = ImageFont.truetype(font_path, 100)
                 print(f"✅ Шрифт для GIF: {font_path}")
                 break
             except:
@@ -147,43 +146,96 @@ def add_text_to_gif(gif_url, text):
         if base_font is None:
             base_font = ImageFont.load_default()
         
+        # ===== МАСШТАБИРОВАНИЕ ТЕКСТА =====
+        target_width = first_frame.width - 80  # отступы
+        words = text.split()
+        
+        # Подбираем размер шрифта
+        min_font_size = 20
+        max_font_size = int(first_frame.height * 0.15)
+        optimal_font_size = min_font_size
+        
+        for size in range(max_font_size, min_font_size - 1, -5):
+            test_font = base_font.font_variant(size=size)
+            
+            # Проверяем, помещается ли текст
+            lines = []
+            current_line = []
+            
+            for word in words:
+                test_line = ' '.join(current_line + [word])
+                bbox = ImageDraw.Draw(first_frame).textbbox((0, 0), test_line, font=test_font)
+                if bbox[2] - bbox[0] <= target_width:
+                    current_line.append(word)
+                else:
+                    if current_line:
+                        lines.append(' '.join(current_line))
+                    current_line = [word]
+            
+            if current_line:
+                lines.append(' '.join(current_line))
+            
+            if len(lines) <= 3:  # Не больше 3 строк
+                optimal_font_size = size
+                break
+        
+        print(f"📏 Размер шрифта для GIF: {optimal_font_size}px")
+        font = base_font.font_variant(size=optimal_font_size)
+        
+        # Разбиваем текст на строки с финальным шрифтом
+        lines = []
+        current_line = []
+        for word in words:
+            test_line = ' '.join(current_line + [word])
+            bbox = ImageDraw.Draw(first_frame).textbbox((0, 0), test_line, font=font)
+            if bbox[2] - bbox[0] <= target_width:
+                current_line.append(word)
+            else:
+                if current_line:
+                    lines.append(' '.join(current_line))
+                current_line = [word]
+        
+        if current_line:
+            lines.append(' '.join(current_line))
+        
         # Обрабатываем каждый кадр
+        durations = []
+        frames = []
+        
         for frame in ImageSequence.Iterator(gif):
-            # Сохраняем длительность кадра
             try:
                 durations.append(frame.info.get('duration', 50))
             except:
                 durations.append(50)
             
-            # Конвертируем в RGB для рисования
             frame_rgb = frame.convert('RGB')
             frame_copy = frame_rgb.copy()
             draw = ImageDraw.Draw(frame_copy)
             
-            # Позиция текста (снизу, по центру)
-            text_bbox = draw.textbbox((0, 0), text, font=base_font)
-            text_width = text_bbox[2] - text_bbox[0]
-            text_height = text_bbox[3] - text_bbox[1]
-            
-            x = (frame_copy.width - text_width) // 2
-            y = frame_copy.height - text_height - 30
-            
-            # Рисуем обводку
-            outline_range = 2
-            for dx in range(-outline_range, outline_range + 1):
-                for dy in range(-outline_range, outline_range + 1):
-                    if dx != 0 or dy != 0:
-                        draw.text((x + dx, y + dy), text, font=base_font, fill='black')
-            
             # Рисуем текст
-            draw.text((x, y), text, font=base_font, fill='white')
+            y_offset = frame_copy.height - 60
+            outline_range = max(2, int(optimal_font_size * 0.03))
+            
+            for line in reversed(lines):
+                bbox = draw.textbbox((0, 0), line, font=font)
+                tw = bbox[2] - bbox[0]
+                th = bbox[3] - bbox[1]
+                x = (frame_copy.width - tw) // 2
+                y = y_offset - th
+                
+                # Обводка
+                for dx in range(-outline_range, outline_range + 1):
+                    for dy in range(-outline_range, outline_range + 1):
+                        if dx != 0 or dy != 0:
+                            draw.text((x + dx, y + dy), line, font=font, fill='black')
+                
+                # Текст
+                draw.text((x, y), line, font=font, fill='white')
+                y_offset = y - int(optimal_font_size * 0.2)
             
             frames.append(frame_copy)
         
-        if not frames:
-            return None
-        
-        # Сохраняем обратно в GIF
+        # Сохраняем GIF
         output = BytesIO()
         frames[0].save(
             output,
@@ -196,14 +248,13 @@ def add_text_to_gif(gif_url, text):
         )
         output.seek(0)
         
-        print(f"✅ GIF с текстом готова, кадров: {len(frames)}")
+        print(f"✅ GIF готова, кадров: {len(frames)}, шрифт: {optimal_font_size}px")
         return output
         
     except Exception as e:
-        print(f"❌ Ошибка при наложении текста на GIF: {e}")
+        print(f"❌ Ошибка GIF: {e}")
         traceback.print_exc()
         return None
-# ========== КОНЕЦ GIF-ФУНКЦИЙ ==========
 
 # Функция для получения фраз из Fucking Great Advice
 def get_russian_phrase():
@@ -596,17 +647,16 @@ def inline_handler(inline_query):
                     print(f"  → фраза на GIF: {text_to_add[:30]}...")
             
             # randtext для фото
-            elif parts and parts[0] == 'randtext':
+            elif parts and parts[1] == 'randtext':
                 is_randtext = True
                 print(f"  → режим randtext")
                 
                 search_query = ' '.join(parts[1:]) if len(parts) > 1 else None
                 text_to_add = get_russian_phrase()
                 print(f"  → фраза: {text_to_add[:30]}...")
-            
             # Категории фраз
-            elif parts and parts[0] in PHRASES:
-                phrase_category = parts[0]
+            elif parts and parts[1] in PHRASES:
+                phrase_category = parts[1]
                 text_to_add = get_random_phrase(phrase_category)
                 search_query = ' '.join(parts[1:]) if len(parts) > 1 else None
                 print(f"  → категория: {phrase_category}")
@@ -672,7 +722,6 @@ def inline_handler(inline_query):
                       gif_width=480,
                       gif_height=360,
                       title=f"GIF {i+1}" + (f": {text_to_add[:20]}..." if text_to_add else ""),
-                      caption=text_to_add if text_to_add else None
                     )
                     results.append(result)
             
