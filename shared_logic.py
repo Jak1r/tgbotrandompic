@@ -94,7 +94,51 @@ EMOJI_PHRASES = [
     "Радужного тебе настроения! Твой эмодзи - {emoji}",
     "Тра-ля-ля, твоё эмодзи сегодня - {emoji}",
     "Ой, смотри какое эмодзи выпало: {emoji}",
-    "Вкусняшка дня - эмодзи {emoji}"
+    "Вкусняшка дня - эмодзи {emoji}",
+    "Сегодня ты будешь как {emoji} - стильно и модно!",
+    "Эмодзи дня: {emoji} (спорный выбор, но ок)",
+    "Держи своё эмодзи: {emoji}, не потеряй!",
+    "Твоя суперсила сегодня - {emoji}",
+    "Эмодзи-то какое: {emoji}! Завидуют все!",
+    "Сегодня ты - {emoji}, гордись!",
+    "Эмодзи дня определяет твоё настроение: {emoji}",
+    "Вжух! И твоё эмодзи дня - {emoji}",
+    "Ты думал будет другое? А вот нет! {emoji}",
+    "Эмодзи-гороскоп говорит: {emoji}",
+    "Твой тотем на сегодня - {emoji}",
+    "Эмодзи-оракул изрёк: {emoji}",
+    "Итак, сегодня ты - {emoji}. Смирись.",
+    "Поздравляю! Твоё эмодзи дня - {emoji}",
+    "Эмодзи-лотерея: выигрыш - {emoji}!",
+    "Твой персональный эмодзи-стикер: {emoji}",
+    "Эмодзи-шаман сказал: {emoji} будет твоим",
+    "Сюрприз! Твоё эмодзи дня - {emoji}",
+    "Эмодзи-карма принесла тебе {emoji}",
+    "Твой эмодзи-тотем на сегодня: {emoji}",
+    "Эмодзи-пророк вещает: {emoji}",
+    "Магия эмодзи превращает тебя в {emoji}",
+    "Эмодзи-гороскоп на сегодня: {emoji} - твой знак",
+    "Твоя эмодзи-аура сегодня: {emoji}",
+    "Эмодзи-вибрации дня: {emoji}",
+    "Космос посылает тебе эмодзи {emoji}",
+    "Твой эмодзи-дух-хранитель: {emoji}",
+    "Эмодзи-фарт на сегодня: {emoji}",
+    "День пройдёт под знаком эмодзи {emoji}",
+    "Эмодзи-предсказание: сегодня ты - {emoji}",
+    "Волшебный экран показал: {emoji}",
+    "Твой эмодзи-покровитель на сегодня: {emoji}",
+    "Эмодзи-энергия дня: {emoji}",
+    "Сегодня твой день - день эмодзи {emoji}!",
+    "Эмодзи-фортуна улыбнулась тебе: {emoji}",
+    "Твоя эмодзи-судьба: {emoji}",
+    "Эмодзи-вселенная выбрала: {emoji}",
+    "Сегодня ты будешь излучать эмодзи {emoji}",
+    "Эмодзи-настроение дня: {emoji}",
+    "Твой эмодзи-символ сегодня: {emoji}",
+    "Эмодзи-тотемное животное: {emoji}",
+    "Магический шар показывает: {emoji}",
+    "Эмодзи-поток принёс тебе {emoji}",
+    "Твой эмодзи-аватар на сегодня: {emoji}"
 ]
 
 user_emojis = {}
@@ -200,10 +244,14 @@ def get_random_meme(query=None):
     return get_random_image(tag)
 
 def get_random_gif(query=None):
+    """Получает случайную GIF-ку из GIPHY API с диагностикой"""
     if not GIPHY_API_KEY:
+        print("❌ GIPHY API ключ не настроен")
         return None
+    
     try:
         tag = query or random.choice(RANDOM_QUERIES)
+        
         url = "https://api.giphy.com/v1/gifs/random"
         params = {
             'api_key': GIPHY_API_KEY,
@@ -211,13 +259,37 @@ def get_random_gif(query=None):
             'rating': 'pg-13',
             'fmt': 'json'
         }
+        
+        print(f"🔄 GIPHY: запрос с тегом '{tag}'")
         response = requests.get(url, params=params, timeout=10)
+        
         if response.status_code == 200:
             data = response.json()
-            if data.get('data') and data['data'].get('images'):
-                return data['data']['images']['original']['url']
+            if data.get('meta') and data['meta'].get('status') == 200:
+                if data.get('data') and data['data'].get('images'):
+                    gif_url = data['data']['images']['original']['url']
+                    print(f"✅ GIPHY: GIF получена")
+                    return gif_url
+            else:
+                print(f"⚠️ GIPHY meta error: {data.get('meta')}")
+        
+        elif response.status_code == 429:
+            print("❌ GIPHY: Лимит запросов исчерпан (429)")
+        elif response.status_code == 403:
+            print("❌ GIPHY: Ошибка авторизации (403)")
+        else:
+            print(f"⚠️ GIPHY: статус {response.status_code}")
+        
         return None
-    except:
+        
+    except requests.exceptions.Timeout:
+        print("❌ GIPHY: Таймаут")
+        return None
+    except requests.exceptions.ConnectionError:
+        print("❌ GIPHY: Ошибка соединения")
+        return None
+    except Exception as e:
+        print(f"❌ GIPHY ошибка: {e}")
         return None
 
 def get_russian_phrase():
