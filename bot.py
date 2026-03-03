@@ -14,26 +14,21 @@ import json
 import uuid
 import sys
 import traceback
-import hashlib  # для генерации стабильного хеша
+import hashlib
 
-# ========== ДИАГНОСТИКА ==========
+# ========== ЛОГИРОВАНИЕ ==========
 import logging
 
-# Настраиваем логирование
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     stream=sys.stdout,
     force=True
 )
 
-# Принудительный flush для print
-# print = lambda *args, **kwargs: __builtins__.print(*args, **kwargs, flush=True)
-
-# print("🔥🔥🔥 БОТ ЗАПУСКАЕТСЯ С ДИАГНОСТИКОЙ 🔥🔥🔥")
 print(f"Python version: {sys.version}")
 print(f"Working directory: {os.getcwd()}")
-# ========== КОНЕЦ ДИАГНОСТИКИ ==========
+# ========== КОНЕЦ ЛОГИРОВАНИЯ ==========
 
 load_dotenv()
 
@@ -90,8 +85,6 @@ RANDOM_QUERIES = [
 def get_russian_phrase():
     """Получает случайную русскую фразу из Fucking Great Advice API"""
     try:
-        print("🔥 Запрашиваем фразу из Fucking Great Advice...")
-        
         response = requests.get(
             'https://fucking-great-advice.ru/api/random',
             timeout=5,
@@ -103,13 +96,11 @@ def get_russian_phrase():
             phrase = data.get('text', '').strip()
             
             if phrase and len(phrase) > 5:
-                print(f"✅ Получена фраза: {phrase[:50]}...")
                 return phrase
             
     except Exception as e:
         print(f"⚠️ Ошибка получения фразы из API: {e}")
     
-    print("⚠️ Используем запасные фразы")
     return get_backup_phrase()
 
 def get_backup_phrase():
@@ -148,15 +139,14 @@ def get_random_phrase(category="random"):
 def cleanup_temp_images():
     """Очистка старых изображений"""
     while True:
-        time.sleep(600)  # Каждые 10 минут
+        time.sleep(600)
         now = time.time()
-        to_delete = [k for k, (_, ts) in temp_images.items() if now - ts > 900]  # 15 минут
+        to_delete = [k for k, (_, ts) in temp_images.items() if now - ts > 900]
         for k in to_delete:
             del temp_images[k]
         if to_delete:
             print(f"🧹 Очищено {len(to_delete)} старых изображений")
 
-# Запускаем поток очистки
 threading.Thread(target=cleanup_temp_images, daemon=True).start()
 
 def setup_webhook():
@@ -255,21 +245,17 @@ def get_random_image(custom_query=None):
     print(f"Все API не дали результат для '{query}'")
     return None, None
 
-# ========== ИСПРАВЛЕННАЯ ВЕРСИЯ (РЕАЛЬНЫЕ СИМВОЛЫ) ==========
+# ========== ФУНКЦИЯ ДОБАВЛЕНИЯ ТЕКСТА ==========
 def add_text_to_image(image_url, text):
     try:
-        print(f"🔥 add_text_to_image ВЫЗВАНА с текстом: '{text}'")
+        print(f"📝 Добавляем текст: '{text[:30]}...'")
         
-        # Скачиваем изображение
         r = requests.get(image_url, timeout=10)
         img = Image.open(BytesIO(r.content)).convert('RGB')
-        print(f"📐 Исходный размер: {img.width} x {img.height}")
         
-        # Уменьшаем если слишком большое
         max_size = 1200
         if img.width > max_size or img.height > max_size:
             img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
-            print(f"📐 После ресайза: {img.width} x {img.height}")
         
         draw = ImageDraw.Draw(img)
         
@@ -283,69 +269,49 @@ def add_text_to_image(image_url, text):
         for font_path in font_paths:
             try:
                 base_font = ImageFont.truetype(font_path, 100)
-                print(f"✅ Шрифт загружен: {font_path}")
+                print(f"✅ Шрифт: {font_path}")
                 break
-            except Exception as e:
-                print(f"⚠️ Шрифт {font_path} не загружен: {e}")
+            except:
+                pass
         
         if base_font is None:
             base_font = ImageFont.load_default()
-            print("⚠️ Используем дефолтный шрифт")
+            print("⚠️ Дефолтный шрифт")
         
         # ===== ПРОПОРЦИОНАЛЬНЫЕ ОТСТУПЫ =====
         side_margin = min(max(int(img.width * 0.05), 20), 60)
         target_width = img.width - (side_margin * 2)
-        
-        # ЗАПАС 7% (0.93)
         safety_margin = 0.93
         
-        # Получаем уникальные символы из текста для измерения
-        unique_chars = ''.join(set(text.replace(' ', '')))
-        if not unique_chars:
-            unique_chars = "А"
-        
-        print(f"📊 Параметры расчета:")
-        print(f"  - Ширина картинки: {img.width}px")
-        print(f"  - Отступы по бокам: {side_margin}px (5% от ширины)")
-        print(f"  - Доступная ширина: {target_width}px")
-        print(f"  - Запас: {int((1-safety_margin)*100)}%")
-        print(f"  - Длина текста: {len(text)} символов")
-        print(f"  - Уникальных символов для измерения: {len(unique_chars)}")
+        # Получаем уникальные символы из текста
+        unique_chars = ''.join(set(text.replace(' ', ''))) or "А"
         
         # Рассчитываем целевую ширину символа
         char_width_target = (target_width / len(text)) * safety_margin
-        print(f"  - Целевая ширина символа: {char_width_target:.1f}px")
         
-        # Тестируем разные размеры шрифта
+        # Тестируем размеры шрифта
         test_sizes = [200, 180, 160, 140, 120, 110, 100, 95, 90, 85, 80, 75, 70, 68, 66, 64, 62, 60, 58, 56, 54, 52, 50, 48, 46, 44, 42, 40, 38, 36, 34, 32, 30, 28, 26, 24, 22, 20]
         
         optimal_font_size = 20
         
-        print(f"🔍 Подбор размера шрифта (по уникальным символам '{unique_chars[:10]}...'):")
         for size in test_sizes:
             font = base_font.font_variant(size=size)
             
-            # Измеряем среднюю ширину уникальных символов из текста
+            # Измеряем среднюю ширину уникальных символов
             total_width = 0
-            for char in unique_chars[:5]:  # берем первые 5 уникальных символов для скорости
+            for char in unique_chars[:5]:
                 bbox = draw.textbbox((0, 0), char, font=font)
                 total_width += bbox[2] - bbox[0]
             
             avg_char_width = total_width / min(len(unique_chars), 5)
             
-            print(f"  Размер {size:3d}px → ср. ширина символа: {avg_char_width:5.1f}px", end='')
-            
             if avg_char_width <= char_width_target:
-                print(f" ✅ ПОДХОДИТ")
                 optimal_font_size = size
                 break
-            else:
-                print(f" ❌")
         
-        # Финальный шрифт
+        # Финальный шрифт и разбиение на строки
         font = base_font.font_variant(size=optimal_font_size)
         
-        # Разбиваем на строки
         words = text.split()
         lines = []
         current_line = []
@@ -363,53 +329,9 @@ def add_text_to_image(image_url, text):
         if current_line:
             lines.append(' '.join(current_line))
         
-        # Если слишком много строк, уменьшаем шрифт
-        if len(lines) > 3:
-            print(f"⚠️ {len(lines)} строк, ищем меньший размер...")
-            current_index = test_sizes.index(optimal_font_size) if optimal_font_size in test_sizes else -1
-            
-            for next_index in range(current_index + 1, len(test_sizes)):
-                next_size = test_sizes[next_index]
-                test_font = base_font.font_variant(size=next_size)
-                
-                test_lines = []
-                test_current = []
-                
-                for word in words:
-                    test_line = ' '.join(test_current + [word])
-                    bbox = draw.textbbox((0, 0), test_line, font=test_font)
-                    if bbox[2] - bbox[0] <= target_width:
-                        test_current.append(word)
-                    else:
-                        if test_current:
-                            test_lines.append(' '.join(test_current))
-                        test_current = [word]
-                
-                if test_current:
-                    test_lines.append(' '.join(test_current))
-                
-                if len(test_lines) <= 3:
-                    optimal_font_size = next_size
-                    font = test_font
-                    lines = test_lines
-                    print(f"✅ Выбран размер {next_size}px ({len(lines)} строк)")
-                    break
-        
-        print(f"📝 Финальное разбиение: {len(lines)} строк")
-        for i, line in enumerate(lines, 1):
-            print(f"  Строка {i}: '{line}'")
-        
-        # Рассчитываем реальное заполнение ширины
-        if lines:
-            bbox = draw.textbbox((0, 0), lines[0], font=font)
-            actual_width = bbox[2] - bbox[0]
-            fill_percentage = (actual_width / target_width) * 100
-            print(f"📊 Заполнение ширины: {fill_percentage:.1f}%")
-        
         # Рисуем текст
         y_offset = img.height - 60
         outline_range = max(2, int(optimal_font_size * 0.03))
-        print(f"✏️ Толщина обводки: {outline_range}px")
         
         for line in reversed(lines):
             bbox = draw.textbbox((0, 0), line, font=font)
@@ -430,35 +352,33 @@ def add_text_to_image(image_url, text):
         img.save(full_output, format='JPEG', quality=90, optimize=True)
         full_output.seek(0)
         
-        print(f"✅ Готово! Размер шрифта: {optimal_font_size}px")
-        print(f"  - Цель по ширине: {char_width_target:.1f}px на символ")
+        print(f"✅ Готово! Шрифт: {optimal_font_size}px")
         return full_output
         
     except Exception as e:
-        print(f"❌ ОШИБКА: {e}")
-        traceback.print_exc()
+        print(f"❌ Ошибка: {e}")
         return None
-# ========== КОНЕЦ ИСПРАВЛЕННОЙ ВЕРСИИ ==========
+# ========== КОНЕЦ ФУНКЦИИ ==========
 
 @bot.message_handler(commands=['start', 'help'])
 def start_command(message):
     available_commands = list(PHRASES.keys())
-    commands_text = '\n'.join([f'• `@твойбот {cmd}` — фраза из "{cmd}"' for cmd in available_commands])
+    commands_text = '\n'.join([f'• `@randompikcha2_bot {cmd}` — фраза из "{cmd}"' for cmd in available_commands])
     
     help_text = (
         '🎨 Привет! Я бот для случайных картинок.\n\n'
         '📸 Как пользоваться:\n'
         '• Просто имя бота — случайная картинка\n'
-        '• `@твойбот cats` — картинка по теме\n\n'
+        '• `@randompikcha2_bot cats` — картинка по теме\n\n'
         '📝 Текст на картинке:\n'
-        '• `@твойбот text "Привет мир"` — картинка с текстом\n'
-        '• `@твойбот text "Привет" cats` — текст + тема\n\n'
+        '• `@randompikcha2_bot "Привет мир"` — картинка с текстом\n'
+        '• `@randompikcha2_bot "Привет" cats` — текст + тема\n\n'
         '🎭 Фразы:\n'
         f'{commands_text}\n\n'
         '🎲 Случайные фразы:\n'
-        '• `@твойбот randtext` — картинка + осмысленная фраза\n'
-        '• `@твойбот randtext 3` — 3 фразы на одной картинке\n'
-        '• `@твойбот randtext природа` — фраза + картинка по теме\n'
+        '• `@randompikcha2_bot randtext` — картинка + осмысленная фраза\n'
+        '• `@randompikcha2_bot randtext 3` — 3 фразы на одной картинке\n'
+        '• `@randompikcha2_bot randtext природа` — фраза + картинка по теме\n'
         f'API: {", ".join(available_apis)}'
     )
     bot.reply_to(message, help_text, parse_mode='Markdown')
@@ -488,112 +408,84 @@ def handle_callback(call):
 
 @bot.inline_handler(lambda query: True)
 def inline_handler(inline_query):
-    query_text = inline_query.query.strip().lower()
+    query_text = inline_query.query.strip()
     user_id = inline_query.from_user.id
     
     print(f"📨 Запрос: '{query_text}' от {user_id}")
     
     # ===== УМНАЯ ЗАДЕРЖКА =====
-    # Если запрос пустой или очень короткий - минимальная задержка
     if len(query_text) < 2:
         time.sleep(0.3)
     else:
-        # Генерируем "стабильную" задержку на основе текста и user_id
-        # Чтобы один и тот же запрос от одного пользователя имел одинаковую задержку
         hash_input = f"{user_id}_{query_text}".encode()
         hash_value = int(hashlib.md5(hash_input).hexdigest(), 16)
-        
-        # Задержка от 0.5 до 1.2 секунд в зависимости от хеша
-        delay = 0.5 + (hash_value % 7) / 10  # 0.5 + 0.0-0.7 = 0.5-1.2 сек
+        delay = 0.5 + (hash_value % 7) / 10
         time.sleep(delay)
     
-    # Остальной код функции...
     results = []
 
     try:
         text_to_add = None
-        search_query = query_text
+        search_query = query_text.lower()
         is_randtext = False
         phrase_count = 1
 
-        parts = query_text.split()
+        parts = query_text.lower().split()
 
-        # Обработка randtext
+        # ===== ОБНОВЛЕННАЯ ЛОГИКА =====
+        # Проверяем на randtext
         if parts and parts[0] == 'randtext':
-            print(f"🔥 Обработка randtext")
             is_randtext = True
             
             if len(parts) > 1:
                 if parts[1].isdigit():
                     phrase_count = min(int(parts[1]), 3)
                     search_query = ' '.join(parts[2:]) if len(parts) > 2 else None
-                    print(f"🔥 Количество фраз: {phrase_count}")
                 else:
                     search_query = ' '.join(parts[1:])
-                    print(f"🔥 Поисковый запрос: {search_query}")
             
             if phrase_count > 1:
                 phrases = []
                 for i in range(phrase_count):
-                    print(f"🔥 Получаем фразу {i+1} из {phrase_count}...")
                     phrase = get_russian_phrase()
                     phrases.append(phrase)
                     if i < phrase_count - 1:
-                        time.sleep(0.5)
+                        time.sleep(0.3)
                 text_to_add = ' | '.join(phrases)
             else:
                 text_to_add = get_russian_phrase()
-            
-            print(f"🔥 Текст для добавления: {text_to_add[:50]}...")
         
-        # Обработка text
-        elif parts and parts[0] == 'text':
-            print(f"🔥 Обработка text")
-            text_match = re.search(r'text\s+"([^"]+)"', query_text, re.IGNORECASE)
-            if text_match:
-                text_to_add = text_match.group(1)
-                remaining = re.sub(r'text\s+"[^"]+"', '', query_text, flags=re.IGNORECASE).strip()
-                search_query = remaining if remaining else None
-                print(f"🔥 Текст: {text_to_add}")
-                print(f"🔥 Поиск: {search_query}")
-
-        # Обработка категорий фраз
+        # Проверяем на категории фраз
         elif parts and parts[0] in PHRASES:
-            print(f"🔥 Обработка категории: {parts[0]}")
             phrase_category = parts[0]
             text_to_add = get_random_phrase(phrase_category)
             search_query = ' '.join(parts[1:]) if len(parts) > 1 else None
-            print(f"🔥 Текст: {text_to_add}")
-            print(f"🔥 Поиск: {search_query}")
-
+        
+        # Проверяем на текст в кавычках (новая фича)
+        elif re.match(r'^".+"', query_text):
+            text_match = re.search(r'"([^"]+)"', query_text)
+            if text_match:
+                text_to_add = text_match.group(1)
+                remaining = re.sub(r'"[^"]+"', '', query_text).strip()
+                search_query = remaining if remaining else None
+        
+        # Обычный поиск
         elif query_text:
-            print(f"🔥 Простой поиск: {query_text}")
             search_query = query_text
 
-        # Отправка фото с текстом через URL
+        # Отправка фото с текстом
         if text_to_add or is_randtext:
-            print(f"🔥 Получаем случайное изображение с запросом: {search_query}")
             image_url, _ = get_random_image(search_query)
             
             if image_url:
-                print(f"🔥 Изображение получено: {image_url}")
-                print(f"🔥 ВЫЗЫВАЕМ add_text_to_image")
-                
                 full = add_text_to_image(image_url, text_to_add)
                 
-                print(f"🔥 РЕЗУЛЬТАТ add_text_to_image: {'успех' if full else 'НЕУДАЧА'}")
-                
                 if full:
-                    # Сохраняем изображение во временное хранилище
                     image_id = generate_unique_id("randtext" if is_randtext else "text")
                     temp_images[image_id] = (full.getvalue(), time.time())
                     
-                    # Формируем URL для доступа к изображению
                     hostname = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost")
                     url = f"https://{hostname}/image/{image_id}"
-                    
-                    print(f"🔗 URL изображения: {url}")
-                    print(f"📸 Всего изображений в кэше: {len(temp_images)}")
                     
                     result = telebot.types.InlineQueryResultPhoto(
                         id=image_id,
@@ -605,13 +497,9 @@ def inline_handler(inline_query):
                         description=text_to_add
                     )
                     results.append(result)
-                    print(f"🔥 Результат добавлен в список")
-            else:
-                print(f"🔥 Не удалось получить изображение")
 
         else:
             # Обычная картинка без текста
-            print(f"🔥 Обычная картинка без текста")
             image_url, thumb_url = get_random_image(search_query)
             
             if image_url and thumb_url:
@@ -627,11 +515,9 @@ def inline_handler(inline_query):
                     description="Нажми отправить"
                 )
                 results.append(result)
-                print(f"🔥 Результат добавлен в список")
 
     except Exception as e:
-        print(f"🔥🔥🔥 ОШИБКА В INLINE HANDLER: {e}")
-        traceback.print_exc(file=sys.stdout)
+        print(f"❌ Ошибка: {e}")
 
     try:
         if results:
@@ -641,16 +527,13 @@ def inline_handler(inline_query):
             bot.answer_inline_query(inline_query.id, [], cache_time=0)
             print("❌ Нет результатов")
     except Exception as e:
-        print(f"❌ Ошибка ответа inline: {e}")
-        traceback.print_exc(file=sys.stdout)
+        print(f"❌ Ошибка отправки: {e}")
 
 # Эндпоинт для получения изображений
 @app.route('/image/<image_id>', methods=['GET', 'HEAD'])
 def serve_image(image_id):
-    print(f"🔍 Запрос изображения {image_id}")
-    
     if image_id in temp_images:
-        image_data, timestamp = temp_images[image_id]
+        image_data, _ = temp_images[image_id]
         
         if request.method == 'HEAD':
             response = app.make_response('')
@@ -660,7 +543,6 @@ def serve_image(image_id):
             response.headers['Cache-Control'] = 'public, max-age=3600'
             return response
         
-        # Добавляем заголовки для правильной загрузки
         response = send_file(
             BytesIO(image_data),
             mimetype='image/jpeg',
@@ -671,10 +553,8 @@ def serve_image(image_id):
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Cache-Control'] = 'public, max-age=3600'
         
-        print(f"✅ Изображение {image_id} отправлено, размер: {len(image_data)} байт")
         return response
         
-    print(f"❌ Изображение {image_id} не найдено")
     abort(404)
 
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
@@ -697,7 +577,6 @@ def index():
         f'🤖 Bot работает на Railway<br>'
         f'API: {", ".join(available_apis)}<br>'
         f'Изображений в памяти: {len(temp_images)}<br>'
-        f'Фраз: {sum(len(v) for v in PHRASES.values())}<br>'
         f'Домен: https://{hostname}'
     ), 200
 
@@ -706,9 +585,8 @@ def health():
     return 'OK', 200
 
 if __name__ == '__main__':
-    print("🚀 ЗАПУСК FLASK СЕРВЕРА С ДИАГНОСТИКОЙ")
+    print("🚀 Запуск бота...")
     setup_webhook()
-    app.run(host='0.0.0.0', port=PORT, debug=True)
+    app.run(host='0.0.0.0', port=PORT, debug=False)
 else:
     setup_webhook()
-    print("🔥 Бот загружен как модуль")
