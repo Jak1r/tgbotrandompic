@@ -254,7 +254,7 @@ def get_random_image(custom_query=None):
     print(f"Все API не дали результат для '{query}'")
     return None, None
 
-# ========== ИСПРАВЛЕННАЯ ВЕРСИЯ С АВТОМАСШТАБИРОВАНИЕМ ==========
+# ========== ИСПРАВЛЕННАЯ ВЕРСИЯ (МАСШТАБИРОВАНИЕ ОТ ШИРИНЫ) ==========
 def add_text_to_image(image_url, text):
     try:
         print(f"🔥 add_text_to_image ВЫЗВАНА с текстом: '{text}'")
@@ -291,16 +291,17 @@ def add_text_to_image(image_url, text):
             base_font = ImageFont.load_default()
             print("⚠️ Используем дефолтный шрифт")
         
-        # ===== ИСПРАВЛЕННОЕ АВТОМАСШТАБИРОВАНИЕ =====
+        # ===== МАСШТАБИРОВАНИЕ ОТ ШИРИНЫ КАРТИНКИ =====
         target_width = img.width - 40  # отступы по краям
         words = text.split()
         
-        # Начинаем с БОЛЬШОГО шрифта и УМЕНЬШАЕМ пока не поместится
-        max_font_size = int(img.height * 0.15)  # 15% от высоты
+        # Начинаем с большого шрифта (15% от ШИРИНЫ, а не высоты)
+        max_font_size = int(img.width * 0.15)  # 15% от ширины
         min_font_size = 20
         current_size = max_font_size
         
-        print(f"🔍 Начинаем подбор с {current_size}px, уменьшаем до {min_font_size}px")
+        print(f"🔍 Ширина картинки: {img.width}px, цель: {target_width}px")
+        print(f"🔍 Начинаем подбор с {current_size}px (15% от ширины), уменьшаем до {min_font_size}px")
         
         optimal_font_size = min_font_size
         optimal_lines = []
@@ -314,7 +315,7 @@ def add_text_to_image(image_url, text):
             
             for word in words:
                 test_line = ' '.join(current_line + [word])
-                # ВАЖНО: используем текущий шрифт для измерения
+                # Измеряем ширину текста
                 bbox = draw.textbbox((0, 0), test_line, font=font)
                 text_width = bbox[2] - bbox[0]
                 
@@ -399,7 +400,7 @@ def add_text_to_image(image_url, text):
         img.save(full_output, format='JPEG', quality=90, optimize=True)
         full_output.seek(0)
         
-        print(f"✅ Готово! Размер шрифта: {optimal_font_size}px")
+        print(f"✅ Готово! Размер шрифта: {optimal_font_size}px (от ширины {img.width}px)")
         return full_output
         
     except Exception as e:
