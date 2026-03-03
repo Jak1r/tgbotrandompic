@@ -105,14 +105,16 @@ def send_photo_with_text(chat_id, text, photo_type='photo', query=None, count=1)
                         full = BytesIO(r.content)
                     
                     if full:
-                        caption = f"GIF {i+1}" if count > 1 else ""
-                        if caption:
-                            caption += "\n\nPowered by GIPHY"
-                        else:
-                            caption = "Powered by GIPHY"
-                        bot.send_animation(chat_id, full, caption=caption)
+                        caption = f"GIF {i+1}" if count > 1 else "Powered by GIPHY"
+                        # Используем send_animation вместо send_document
+                        bot.send_animation(
+                            chat_id, 
+                            full, 
+                            caption=caption,
+                            timeout=30  # Увеличиваем таймаут для больших файлов
+                        )
                 else:
-                    bot.send_message(chat_id, "❌ GIF временно недоступны")
+                    bot.send_message(chat_id, "❌ GIF временно недоступны. Попробуйте позже.")
         
         elif photo_type == 'meme':
             for i in range(count):
@@ -309,7 +311,7 @@ def inline_handler(inline_query):
         
         print(f"  ✅ Базовая картинка получена: {base_image_url[:50]}...")
         
-        # 1. Базовая картинка БЕЗ текста (просто картинка)
+        # 1. Базовая картинка БЕЗ текста
         result1 = telebot.types.InlineQueryResultPhoto(
             id=generate_unique_id("menu_photo"),
             photo_url=base_image_url,
@@ -322,12 +324,8 @@ def inline_handler(inline_query):
         results.append(result1)
         print(f"  ✅ Базовая картинка без текста добавлена")
         
-        # 2. Та же базовая картинка со случайной фразой (randtext)
-        print(f"  ⏳ Генерируем randtext...")
+        # 2. Та же базовая картинка со случайной фразой
         random_phrase = get_russian_phrase()
-        print(f"  📝 Фраза: {random_phrase[:50]}...")
-        
-        print(f"  ⏳ Добавляем текст на базовую картинку...")
         full = add_text_to_image(base_image_url, random_phrase)
         if full:
             image_id = generate_unique_id("menu_randtext")
@@ -346,17 +344,11 @@ def inline_handler(inline_query):
             )
             results.append(result2)
             print(f"  ✅ Randtext добавлен")
-        else:
-            print(f"  ❌ Ошибка: add_text_to_image вернул None")
         
-        # 3. Та же базовая картинка со случайной категорией фраз
+        # 3. Та же базовая картинка со случайной категорией
         if PHRASES:
-            print(f"  ⏳ Генерируем случайную категорию...")
             random_category = random.choice(list(PHRASES.keys()))
             random_phrase = get_random_phrase(random_category)
-            print(f"  📝 Категория: {random_category}, фраза: {random_phrase[:50]}...")
-            
-            print(f"  ⏳ Добавляем текст на ту же базовую картинку...")
             full = add_text_to_image(base_image_url, random_phrase)
             if full:
                 image_id = generate_unique_id("menu_category")
@@ -375,13 +367,8 @@ def inline_handler(inline_query):
                 )
                 results.append(result3)
                 print(f"  ✅ Категория {random_category} добавлена")
-            else:
-                print(f"  ❌ Ошибка: add_text_to_image вернул None для категории")
-        else:
-            print(f"  ⚠️ Нет категорий в PHRASES")
         
-        # 4. Случайный мем (отдельно)
-        print(f"  ⏳ Ищем случайный мем...")
+        # 4. Случайный мем
         meme_url, thumb_url = get_random_meme()
         if meme_url and thumb_url:
             result4 = telebot.types.InlineQueryResultPhoto(
@@ -395,11 +382,8 @@ def inline_handler(inline_query):
             )
             results.append(result4)
             print(f"  ✅ Мем добавлен")
-        else:
-            print(f"  ❌ Не удалось получить мем")
 
-        # 5. Эмодзи дня
-        print(f"  ⏳ Генерируем эмодзи дня...")
+        # 👇 ЭМОДЗИ ДНЯ ТЕПЕРЬ ЗДЕСЬ (ПОСЛЕ МЕМА)
         emoji = get_user_emoji(user_id)
         emoji_phrase = random.choice(EMOJI_PHRASES).format(emoji=emoji)
         result5 = telebot.types.InlineQueryResultArticle(
@@ -417,7 +401,6 @@ def inline_handler(inline_query):
         print(f"  ✅ Эмодзи дня: {emoji}")
         
         # 6. Инструкция
-        print(f"  ⏳ Добавляем инструкцию...")
         help_text = (
             "📖 **Как пользоваться:**\n\n"
             "**Основные команды:**\n"
