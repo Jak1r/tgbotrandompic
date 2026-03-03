@@ -299,7 +299,10 @@ def inline_handler(inline_query):
         print(f"  → пустой запрос, показываем меню")
         results = []
         
-        # 1. Случайная картинка - используем get_random_image()
+        # Базовая картинка для всех вариантов с текстом
+        base_image_url = "https://images.unsplash.com/photo-1541701494587-c4815857b4c0?w=400"  # Красивая абстракция
+        
+        # 1. Случайная картинка (своя уникальная)
         image_url, thumb_url = get_random_image()
         if image_url and thumb_url:
             result1 = telebot.types.InlineQueryResultPhoto(
@@ -308,113 +311,116 @@ def inline_handler(inline_query):
                 thumbnail_url=thumb_url,
                 photo_width=1080,
                 photo_height=720,
-                title="🖼️ Случайная картинка",
-                description="Нажми для отправки"
+                title="🖼️  Случайная картинка",
+                description="Просто красивое фото"
             )
             results.append(result1)
         
-        # 2. Случайная фраза - используем get_russian_phrase() + add_text_to_image()
+        # 2. Базовая картинка со случайной фразой
         random_phrase = get_russian_phrase()
-        image_url, thumb_url = get_random_image()
-        if image_url and thumb_url:
-            full = add_text_to_image(image_url, random_phrase)
+        full = add_text_to_image(base_image_url, random_phrase)
+        if full:
+            image_id = generate_unique_id("menu_randtext")
+            temp_images[image_id] = (full.getvalue(), time.time())
+            hostname = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost")
+            url = f"https://{hostname}/image/{image_id}"
+            
+            result2 = telebot.types.InlineQueryResultPhoto(
+                id=image_id,
+                photo_url=url,
+                thumbnail_url=url,
+                photo_width=1080,
+                photo_height=720,
+                title="🎲  Случайная фраза",
+                description=f"«{random_phrase[:40]}...»"
+            )
+            results.append(result2)
+        
+        # 3. Базовая картинка со случайной категорией
+        if PHRASES:
+            random_category = random.choice(list(PHRASES.keys()))
+            random_phrase = get_random_phrase(random_category)
+            full = add_text_to_image(base_image_url, random_phrase)
             if full:
-                image_id = generate_unique_id("menu_randtext")
+                image_id = generate_unique_id("menu_category")
                 temp_images[image_id] = (full.getvalue(), time.time())
                 hostname = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost")
                 url = f"https://{hostname}/image/{image_id}"
                 
-                result2 = telebot.types.InlineQueryResultPhoto(
+                result3 = telebot.types.InlineQueryResultPhoto(
                     id=image_id,
                     photo_url=url,
                     thumbnail_url=url,
                     photo_width=1080,
                     photo_height=720,
-                    title="🎲 Случайная фраза",
-                    description=f"Пример: {random_phrase[:50]}..."
+                    title=f"🎭  {random_category.capitalize()}",
+                    description=f"«{random_phrase[:40]}...»"
                 )
-                results.append(result2)
+                results.append(result3)
         
-        # 3. Случайный мем - используем get_random_meme()
+        # 4. Случайный мем (свой уникальный)
         meme_url, thumb_url = get_random_meme()
         if meme_url and thumb_url:
-            result3 = telebot.types.InlineQueryResultPhoto(
+            result4 = telebot.types.InlineQueryResultPhoto(
                 id=generate_unique_id("menu_meme"),
                 photo_url=meme_url,
                 thumbnail_url=thumb_url,
                 photo_width=1080,
                 photo_height=720,
-                title="🎭 Случайный мем",
-                description="Свежий мем для поднятия настроения"
+                title="😂  Случайный мем",
+                description="Поржать на сегодня"
             )
-            results.append(result3)
+            results.append(result4)
 
-        # 4. Эмодзи дня
+        # 5. Эмодзи дня (текст)
         emoji = get_user_emoji(user_id)
-        random_phrase = random.choice(EMOJI_PHRASES).format(emoji=emoji)
-        result4 = telebot.types.InlineQueryResultArticle(
+        emoji_phrase = random.choice(EMOJI_PHRASES).format(emoji=emoji)
+        result5 = telebot.types.InlineQueryResultArticle(
             id=generate_unique_id("menu_emoji"),
-            title="🎲 Эмодзи дня",
-            description=random_phrase,
+            title="🎲  Эмодзи дня",
+            description=emoji_phrase,
             input_message_content=telebot.types.InputTextMessageContent(
-                message_text=random_phrase
-            )
+                message_text=emoji_phrase
+            ),
+            thumbnail_url="https://images.unsplash.com/photo-1518548419970-58e3b4079ab2?w=200",
+            thumbnail_width=200,
+            thumbnail_height=133
         )
-        results.append(result4)
-        
-        # 5. Случайная категория фраз
-        if PHRASES:
-            random_category = random.choice(list(PHRASES.keys()))
-            random_phrase = get_random_phrase(random_category)
-            image_url, thumb_url = get_random_image()
-            if image_url and thumb_url:
-                full = add_text_to_image(image_url, random_phrase)
-                if full:
-                    image_id = generate_unique_id("menu_category")
-                    temp_images[image_id] = (full.getvalue(), time.time())
-                    hostname = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost")
-                    url = f"https://{hostname}/image/{image_id}"
-                    
-                    result5 = telebot.types.InlineQueryResultPhoto(
-                        id=image_id,
-                        photo_url=url,
-                        thumbnail_url=url,
-                        photo_width=1080,
-                        photo_height=720,
-                        title=f"🎭 Категория {random_category}",
-                        description=f"{random_phrase[:50]}..."
-                    )
-                    results.append(result5)
+        results.append(result5)
         
         # 6. Инструкция
         help_text = (
-            "📖 Как пользоваться:\n\n"
-            "Основные команды:\n"
-            "• @randompikcha2_bot - это меню\n"
-            "• @randompikcha2_bot кот - фото по теме\n"
-            "• @randompikcha2_bot 3 - 3 фото на выбор\n\n"
-            "Текст на фото:\n"
-            "• @randompikcha2_bot \"Привет\" - фото с текстом\n"
-            "• @randompikcha2_bot \"Привет\" кот 3 - 3 фото котов с текстом\n\n"
-            "Случайные фразы:\n"
-            "• @randompikcha2_bot randtext - фото с фразой\n\n"
-            "Категории фраз:\n" +
-            '\n'.join([f"• @randompikcha2_bot {cat}" for cat in PHRASES.keys()]) +
-            "\n\nМемы и GIF:\n"
-            "• @randompikcha2_bot meme - случайный мем\n"
-            "• @randompikcha2_bot gif - случайная GIF\n\n"
-            "Эмодзи дня:\n"
-            "• @randompikcha2_bot emoji - твоё эмодзи на сегодня\n\n"
-            "⚡️ Совет: Добавляй число в конце для нескольких вариантов!"
+            "📖 **Как пользоваться:**\n\n"
+            "**Основные команды:**\n"
+            "• `@randompikcha2_bot` - это меню\n"
+            "• `@randompikcha2_bot кот` - фото по теме\n"
+            "• `@randompikcha2_bot 3` - 3 фото на выбор\n\n"
+            "**Текст на фото:**\n"
+            "• `@randompikcha2_bot \"Привет\"` - фото с текстом\n"
+            "• `@randompikcha2_bot \"Привет\" кот 3` - 3 фото котов с текстом\n\n"
+            "**Случайные фразы:**\n"
+            "• `@randompikcha2_bot randtext` - фото с фразой\n\n"
+            "**Категории фраз:**\n" +
+            ''.join([f"• `@randompikcha2_bot {cat}`\n" for cat in PHRASES.keys()]) +
+            "\n**Мемы и GIF:**\n"
+            "• `@randompikcha2_bot meme` - случайный мем\n"
+            "• `@randompikcha2_bot gif` - случайная GIF\n\n"
+            "**Эмодзи дня:**\n"
+            "• `@randompikcha2_bot emoji` - твоё эмодзи на сегодня\n\n"
+            "⚡️ **Совет:** Добавляй число в конце для нескольких вариантов!"
         )
         
         result_help = telebot.types.InlineQueryResultArticle(
             id=generate_unique_id("menu_help"),
-            title="📖 Инструкция",
+            title="📖  Инструкция",
             description="Как пользоваться ботом",
             input_message_content=telebot.types.InputTextMessageContent(
-                message_text=help_text
-            )
+                message_text=help_text,
+                parse_mode='Markdown'
+            ),
+            thumbnail_url="https://images.unsplash.com/photo-1486312338219-ce68d2c6f44d?w=200",
+            thumbnail_width=200,
+            thumbnail_height=133
         )
         results.append(result_help)
         
@@ -425,6 +431,7 @@ def inline_handler(inline_query):
             return
         except Exception as e:
             print(f"❌ Ошибка отправки меню: {e}")
+            traceback.print_exc()
             return
 
     elif len(query_text) < 3:
