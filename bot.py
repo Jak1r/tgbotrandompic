@@ -317,7 +317,137 @@ def inline_handler(inline_query):
     
     # Умная задержка
     if not query_text:
-        pass
+        print(f"  → пустой запрос, показываем меню")
+        
+        # 1. Случайная картинка
+        result1 = InlineQueryResultArticle(
+            id=generate_unique_id("menu_photo"),
+            title="🖼️ Случайная картинка",
+            description="Просто случайное фото",
+            input_message_content=InputTextMessageContent(
+                message_text="🔍 Генерирую случайное фото...\n\n_Результат появится через пару секунд_",
+                parse_mode='Markdown'
+            ),
+            thumbnail_url="https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=200",
+            thumbnail_width=200,
+            thumbnail_height=133
+        )
+        results.append(result1)
+        
+        # 2. Картинка со случайной фразой (randtext)
+        random_phrase = get_russian_phrase()
+        result2 = InlineQueryResultArticle(
+            id=generate_unique_id("menu_randtext"),
+            title="🎲 Случайная фраза",
+            description=f"Пример: {random_phrase[:50]}...",
+            input_message_content=InputTextMessageContent(
+                message_text=f"🎲 Случайная фраза: {random_phrase}\n\n_Используй `@randompikcha2_bot randtext` чтобы получить ещё_",
+                parse_mode='Markdown'
+            ),
+            thumbnail_url="https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=200",
+            thumbnail_width=200,
+            thumbnail_height=133
+        )
+        results.append(result2)
+        
+        # 3. Случайный мем
+        result3 = InlineQueryResultArticle(
+            id=generate_unique_id("menu_meme"),
+            title="🎭 Случайный мем",
+            description="Свежий мем для поднятия настроения",
+            input_message_content=InputTextMessageContent(
+                message_text="🔍 Ищу случайный мем...\n\n_Результат появится через пару секунд_",
+                parse_mode='Markdown'
+            ),
+            thumbnail_url="https://images.unsplash.com/photo-1554050857-c84a8abdb5e2?w=200",
+            thumbnail_width=200,
+            thumbnail_height=133
+        )
+        results.append(result3)
+
+        # 5. Эмодзи дня
+        emoji = get_user_emoji(user_id)
+        result5 = InlineQueryResultArticle(
+            id=generate_unique_id("menu_emoji"),
+            title="🎲 Эмодзи дня",
+            description=f"Твоё эмодзи на сегодня: {emoji}",
+            input_message_content=InputTextMessageContent(
+                message_text=f"🎲 Твоё эмодзи дня - {emoji}",
+                parse_mode='HTML'
+            ),
+            thumbnail_url="https://images.unsplash.com/photo-1518548419970-58e3b4079ab2?w=200",
+            thumbnail_width=200,
+            thumbnail_height=133
+        )
+        results.append(result5)
+        
+        # 6. Случайная категория фраз
+        if PHRASES:
+            # Выбираем случайную категорию
+            random_category = random.choice(list(PHRASES.keys()))
+            random_phrase = get_random_phrase(random_category)
+            
+            result6 = InlineQueryResultArticle(
+                id=generate_unique_id("menu_random_category"),
+                title="🎭 Случайная категория фраз",
+                description=f"[{random_category}] {random_phrase[:50]}...",
+                input_message_content=InputTextMessageContent(
+                    message_text=f"🎭 Категория «{random_category}»: {random_phrase}\n\n_Используй `@randompikcha2_bot {random_category}` чтобы получить ещё из этой категории_",
+                    parse_mode='Markdown'
+                ),
+                thumbnail_url="https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=200",
+                thumbnail_width=200,
+                thumbnail_height=133
+            )
+            results.append(result6)
+        
+        # 7. Инструкция по использованию
+        help_text = (
+            "📖 **Как пользоваться:**\n\n"
+            "**Основные команды:**\n"
+            "• `@randompikcha2_bot` - это меню\n"
+            "• `@randompikcha2_bot кот` - фото по теме\n"
+            "• `@randompikcha2_bot 3` - 3 фото на выбор\n\n"
+            "**Текст на фото:**\n"
+            "• `@randompikcha2_bot \"Привет\"` - фото с текстом\n"
+            "• `@randompikcha2_bot \"Привет\" кот 3` - 3 фото котов с текстом\n\n"
+            "**Случайные фразы:**\n"
+            "• `@randompikcha2_bot randtext` - фото с фразой\n"
+            "• `@randompikcha2_bot randtext кот 2` - 2 фото котов с фразой\n\n"
+            "**Категории фраз:**\n"
+            + ''.join([f"• `@randompikcha2_bot {cat}` - фото с фразой из категории {cat}\n" for cat in PHRASES.keys()]) +
+            "\n**Мемы и GIF:**\n"
+            "• `@randompikcha2_bot meme` - случайный мем\n"
+            "• `@randompikcha2_bot gif` - случайная GIF\n"
+            "• `@randompikcha2_bot gif \"текст\"` - GIF с текстом\n\n"
+            "**Эмодзи дня:**\n"
+            "• `@randompikcha2_bot emoji` - твоё эмодзи на сегодня\n\n"
+            "⚡️ **Совет:** Добавляй число в конце для нескольких вариантов!"
+        )
+        
+        result_help = InlineQueryResultArticle(
+            id=generate_unique_id("menu_help"),
+            title="📖 Инструкция",
+            description="Как пользоваться ботом",
+            input_message_content=InputTextMessageContent(
+                message_text=help_text,
+                parse_mode='Markdown'
+            ),
+            thumbnail_url="https://images.unsplash.com/photo-1486312338219-ce68d2c6f44d?w=200",
+            thumbnail_width=200,
+            thumbnail_height=133
+        )
+        results.append(result_help)
+        
+        # Отправляем меню
+        try:
+            bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
+            print(f"✅ Отправлено меню из {len(results)} пунктов")
+            return
+        except Exception as e:
+            print(f"❌ Ошибка отправки меню: {e}")
+            return
+
     elif len(query_text) < 3:
         time.sleep(0.2)
     else:
