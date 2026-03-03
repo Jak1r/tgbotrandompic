@@ -363,7 +363,7 @@ def inline_handler(inline_query):
                         thumbnail_url=url,
                         gif_width=480,
                         gif_height=360,
-                        title=f"GIF {i+1}" + (f": {text_to_add[:20]}..." if text_to_add else "")
+                        title=f"GIF {i+1}" + (f": {text_to_add[:20]}..." if text_to_add else ""),
                         caption="Powered by GIPHY"  # 👈 Добавьте эту строку
                     )
                     results.append(result)
